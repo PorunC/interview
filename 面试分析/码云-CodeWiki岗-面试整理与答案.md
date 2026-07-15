@@ -1,0 +1,428 @@
+# 码云（CodeWiki 岗位）面试整理与参考答案
+
+> **说明**：本文按面试官提问顺序整理，每题给出【面试官问题】、【现场表现/风险点】和【参考答案】。答案紧扣你真实项目（CodeWiki / agent 记忆系统）实现，可直接改写成自己的话。
+>
+> 这场面试的考察主线很清晰：**提示词工程基础认知 → harness/loop/agentic 概念 → LangGraph 框架 → CodeWiki 项目深挖（向量库选型、更新删除、幻觉、AST 引擎、GraphRAG token 爆炸、多版本、vibe coding）→ agent 记忆系统 → 开放性趋势题**。
+>
+> 两个明确的失分点（面试官当场指出）：
+> 1. **"loop engineer / loop 概念"答得偏**——你往"社会化协作/开发周期"方向答了，面试官纠正后说"概念是开放的，没有定论"。
+> 2. **"幻觉问题怎么产生的"理解不准确**——面试官明确说"这个理解不是特别准确，下来可以再学一下"。
+> 这两题的答案下面重点校正。
+
+---
+
+## 一、开场：自我介绍 + 提示词工程
+
+### Q1. 先来个自我介绍
+
+**参考思路**：30 秒～1 分钟，结构 = 身份 + 技术栈定位 + 两个核心项目一句话 + 求职意向。
+
+> 我主要做 AI 工程方向，过去一段时间独立/主导做了两个项目：一个是 **CodeWiki**，把代码仓库用 AST + GraphRAG 做成可追溯的代码知识库，给人和 Coding Agent 用；另一个是 **agent 长期记忆系统**，做了分层记忆（L0~L3）和上下文压缩。技术栈以 Python 为主，大模型侧用 LiteLLM 做多模型路由，存储用 SQLite/PostgreSQL + FTS + 向量检索。
+
+### Q2. 聊一聊你理解的提示词工程
+
+**参考答案**：
+> 提示词工程我理解不是"写一段漂亮的咒语"，而是**用结构化方式把任务约束、上下文、输出格式固定下来，让模型输出可控、可复现**。具体几层：
+>
+> 1. **角色与任务定义**：明确模型扮演什么角色、要解决什么问题。
+> 2. **上下文注入**：把检索到的事实（不是让模型凭记忆）作为输入，比如 CodeWiki 里把 GraphRAG 的 source chunks、graph facts 喂给模型，模型基于证据生成，不是自由发挥。
+> 3. **输出格式约束**：要求 JSON、要求引用 source ref、要求 Mermaid placeholder——硬约束输出结构。
+> 4. **示例（few-shot）**：复杂任务给少量样例对齐格式。
+> 5. **校验与修复回路**：输出不合法时把 validation_errors 回灌给模型让它修，而不是直接用。
+>
+> 在 CodeWiki 里这套体现得最明显：Wiki 页面生成必须返回 JSON、必须引用 allowed source refs、过 Markdown/citation/diagram 三道校验，失败进 validation repair。**提示词工程的核心是"用约束把概率模型变成工程上可控的组件"**，不是玄学。
+
+---
+
+## 二、Harness / Loop / Agentic 概念
+
+### Q3. 了解不了解什么是 harness 和 loop engineer？
+
+> ⚠️ **现场失分点**：你往"社会化协作、开发周期、产品设计→技术文档→QA→开发→验收"方向答了，面试官纠正说"概念是开放的，没有定论，大家个人理解不同"。下面给校正版。
+
+**参考答案**（校正版）：
+> 这两个概念我分开说，并诚实承认它们目前**没有统一权威定义**，更多是社区/大佬提出来后大家各自解读。
+>
+> **Harness（测试/运行 harness）**：在 LLM 和 agent 语境下，harness 指的是**包裹模型的外层工程框架**——模型本身只会"输入→输出"，但要让它在真实任务里跑起来，需要 harness 提供：工具调用循环、上下文管理、状态持久化、错误重试、结果校验。比如 Claude Code、Codex CLI 本身就是一个 coding harness，模型是内核，harness 是外壳。SWE-bench 这类评测也有自己的 eval harness。
+>
+> **Loop / Loop Engineer**：这个概念是 OpenCloud / Anthropic 相关创始人提出来的，社区有解析但**没有准则级落地**。我的理解是：它强调的是**让 agent 任务形成闭环**——不是单轮 prompt-response，而是"执行→观察→反馈→修正→再执行"的循环，直到任务收敛或满足终止条件。Loop engineer 就是设计这个闭环的人：决定每一轮喂什么上下文、什么时候终止、失败怎么回退、怎么压缩历史。
+>
+> 诚实补充：你提到 Claude Code 里 loop 集成还比较浅——query 里一个 tool call，有 tool call 就继续、没有就结束——这个观察我认同，**目前的 loop 多是"tool call 驱动的隐式循环"，还没有特别深的显式闭环设计**。这个概念确实还在演进，没有标准答案，我下来会持续跟进。
+
+**关键点**：承认概念开放 + 给出自己的工程化解读 + 不硬套"开发周期"这种社会化框架。面试官已经明确说"大佬提个概念我们就学，最终不确定"，所以**展示你跟进了讨论但不下死定义**比硬答强。
+
+### Q4. （追问）loop 在 Claude Code 里应该还没集成吧？代码核心是 query 里 tool call，有就 call，结束就结束
+
+**参考答案**：
+> 对，我认同。Claude Code 的主循环本质是 `while has_tool_call: execute_tool → feed_back → query_again`，loop 的概念还停留在 **tool-call 驱动的隐式循环**这一层。真正深度的 loop 设计——比如多轮自我反思、显式的 plan→execute→verify→repair 闭环、跨会话的任务状态机——目前主流 coding agent 还没做强集成。这也是 Loop Engineer 这个概念想往前推的方向，但落地确实还在早期。
+
+---
+
+## 三、LangGraph 框架
+
+### Q5. 项目有没有了解 LangGraph 这类框架？自己有用过吗？
+
+**参考答案**（如实 + 体现认知）：
+> LangGraph 我了解它的设计思想——**把 agent workflow 建模成显式的状态图（state graph）**，节点是计算单元（可以是 LLM 调用、工具调用、纯逻辑），边是状态转移，支持条件路由、循环、checkpointer 持久化。它比纯 LangChain 的 chain 更可控，适合多步骤、有分支和回环的 agent。
+>
+> 我自己项目里**没有直接用 LangGraph**（如实说）。CodeWiki 的 Wiki Agent workflow 是自己实现的一套工具链：plan → evidence → save → validate，本质也是一个有状态的多步流程，但我们用更轻的显式状态机 + 服务端校验实现，没有引入 LangGraph 的图抽象依赖。
+>
+> 如果要选，LangGraph 适合**复杂多分支、需要中断恢复、需要人审批节点**的 agent 场景；CodeWiki 的流程相对线性（生成→校验→修复），用轻量状态机够用。这是我没用它的原因，不是不认可它。
+
+### Q6. 项目中（如果用了）图的状态是怎么设计的？
+
+**参考答案**（以 CodeWiki 的实际状态设计回答，因为你没用 LangGraph，转讲自己的状态设计）：
+> 我没用 LangGraph，但 CodeWiki 的 Wiki Agent workflow 也有显式状态设计，可以类比讲：
+>
+> 状态核心字段：
+> - **任务上下文**：repo_id、当前生成的 catalog（目录结构）、已完成的 page slugs。
+> - **当前阶段**：plan / evidence / generate / validate / repair / done。
+> - **证据集**：每页生成时检索到的 source chunks、graph nodes、graph edges、community summaries——这些是 allowed source refs 的来源。
+> - **校验状态**：validation_errors、retry_count（最多 3 次修复）。
+> - **持久化产物**：doc_page 表里的 status（draft / generated / stale）。
+>
+> 状态转移：plan 成功 → 逐页 evidence（取上下文）→ generate（LLM 生成 JSON）→ validate（Markdown/citation/diagram 校验）→ 失败进 repair（把 errors 回灌）→ 成功 save_page。状态都落库，中断后能从某页继续，不用从头来。
+>
+> 如果用 LangGraph 重新实现，这套状态就是 `State` 对象，阶段就是节点，validate→repair 就是条件回环边。
+
+---
+
+## 四、CodeWiki 项目深挖
+
+### Q7. 先讲一讲 CodeWiki 的项目架构
+
+**参考答案**（七层，面试可压缩到 3 分钟版）：
+> CodeWiki 是一个**本地优先的代码智能平台**，核心思想是：**先用确定性程序把仓库变成结构化事实，再让 LLM 做组织和表达，LLM 输出被源码引用硬约束住**。架构分七层：
+>
+> 1. **仓库接入层**：`RepoScanner` 支持本地路径和 Git URL，给每个文件打语言、sha256、mtime、git commit time，为增量更新提供稳定事实。
+> 2. **AST 结构化层**：`AstParser` 基于 tree-sitter，多语言（Python/Java/Go/Rust/C/C++/C#/TS/JS）统一产出到 `AstSymbol`（type/name/signature/imports/calls/references/bases/implements/decorators）。
+> 3. **Code Graph 层**：`GraphBuilder` 把类/函数/方法/endpoint/schema 变成节点，contains/defines/imports/calls/references/inherits 等变成边，每条边带 confidence 和 provenance（区分确定性结构边和启发式推断边）。
+> 4. **社区检测层**：`CommunityDetector` 用 Louvain/Leiden 做模块度分区，生成 level 0/1/2 层级社区，`CommunityNamer` 用 LLM 给社区起名和摘要。
+> 5. **GraphRAG 检索层**：先符号搜索找 seed → 合并 FTS/vector 命中 chunk → 沿图扩展 → 选 source chunks + 图边 + 社区摘要组成 context pack，受 token budget 约束。
+> 6. **Wiki & Ask 层**：Ask 用 GraphRAG 上下文回答；Wiki 先生成目录再逐页生成，每页必须引用 allowed source refs、过校验。
+> 7. **产品入口层**：FastAPI + React 工作台、CLI、MCP server（给 Coding Agent 用）、Lite Mode（项目内本地 sqlite，无 LLM 也能查图）。
+>
+> 一句话：**普通代码 RAG 以 chunk 为中心，CodeWiki 以 graph 为中心，检索先找 symbol seed 再沿图扩展，把依赖上下文一次性补全**。
+
+### Q8. 我看 CodeWiki 里使用了向量库，向量库是如何选型的？
+
+**参考答案**：
+> 选型核心是**跟随主存储、轻量、向量可选**。我们主存储是 SQLite（默认）/ PostgreSQL（可选），向量库不是独立引入一个 Milvus/Qdrant，而是**复用主库的向量扩展**：
+>
+> - **SQLite 路线**：FTS5（全文检索）+ `sqlite-vec`（`vec0` 虚拟表），按 `repo_id`、`model` 做 partition key。
+> - **PostgreSQL 路线**：`tsvector` + GIN 索引（全文）+ `pgvector`（向量）。
+>
+> 选型理由：
+> 1. **本地优先，零外部依赖**：CodeWiki 定位是单机/本地团队工具，引入独立向量服务（Milvus/Qdrant/Weaviate）会增加部署复杂度，和"开箱即用"冲突。SQLite + sqlite-vec 一个文件搞定。
+> 2. **向量是可选能力，不是必需**：第一层召回靠**符号搜索 + FTS**，vector 只是语义增强。embedding 需要 LLM provider，成本高、依赖重，所以做成 `include_embeddings` 可选——没配 embedding 也能靠 FTS + 图扩展跑起来。这是和其他 RAG 项目最大的区别。
+> 3. **FTS 和 vector 在同一个库里**：chunk 的全文和向量在同一个事务里写入/更新，避免跨库一致性问题。
+> 4. **PostgreSQL 作为 scale-up 路径**：仓库大了或要团队共享时切 PG，pgvector + tsvector 平滑迁移，业务代码不变。
+>
+> 诚实边界：这选型适合**单仓库、本地、中小规模**；如果是多租户 SaaS、千万级向量、高并发检索，那确实该上独立向量库（Qdrant/Milvus），但那不是 CodeWiki 的场景。
+
+### Q9. 涉不涉及向量库的更新和删除操作？
+
+**参考答案**：
+> 涉及，但不是"随机改某条向量"那种点更新，而是**跟着代码变更走的批量增量更新**。具体：
+>
+> - **更新触发**：`IncrementalUpdater` 优先用 **git diff** 找候选变更文件，兜底用 **sha256 对比**（size + mtime 没变就复用旧 hash，跳过）。只对 changed/new 文件重新解析 AST、重建 chunk、重算 embedding。
+> - **删除处理**：扫描出 deleted 文件后，删除该文件对应的 chunks、对应的 graph 节点/边、对应的 embedding 行。
+> - **怎么定位原始向量位置**：不靠"向量相似度找旧向量"——那是不可靠的。靠**业务主键关联**：每个 chunk 有稳定的 `chunk_id`（基于 repo_id + file_path + 行范围/hash），embedding 行用同一个 `chunk_id` 做外键。更新时按 `chunk_id` upsert，删除时按 `chunk_id` 精确删。**向量库的更新删除走主键，不走相似度**。
+>
+> 核心原则：**向量库的增删改和图、chunks 是同一个增量计划驱动的，主键对齐，不是独立维护**。
+
+### Q10. 那是怎么进行增删改的？有没有随机改？
+
+**参考答案**：
+> 没有业务意义上的"随机改单条向量"。向量库的写操作只有两种场景：
+> 1. **增量更新**（代码变了）：git diff → changed/new/deleted → 对应 chunk 重算 embedding upsert，deleted 的删。
+> 2. **全量重建**（force 模式或换 embedding 模型）：清掉该 repo 的所有 embedding，按新 model 重算。
+>
+> 不提供"手动改某条向量"的接口，因为向量本身没有业务语义，单独改一条向量只会破坏它和 chunk 的一致性。要改的是**源头（代码/chunk）**，向量跟着重算。这是设计上的约束，不是功能缺失。
+
+### Q11. 你是怎么找到它原始那个向量的位置的？
+
+**参考答案**（这是 Q9 的追问，再强调一遍主键）：
+> 靠**稳定主键 `chunk_id`，不是靠向量相似度反查**。流程：
+> - chunk 入库时生成 `chunk_id`（repo_id + 文件路径 + 行范围或内容 hash 派生）。
+> - embedding 行用**同一个 `chunk_id`** 作为关联键 + partition key（repo_id）。
+> - 文件变了 → 重新切 chunk → 算出新 `chunk_id` → 拿新 `chunk_id` 去 embedding 表 upsert，同时删掉旧文件路径下不再存在的 `chunk_id`。
+>
+> 整个过程**不依赖向量相似度定位**，向量相似度只用于"检索"，不用于"更新定位"。这避免了一个常见坑：用相似度找旧向量再改，相似度不稳时会改错条目。
+
+### Q12. 这样操作有没有遗留一些什么问题？
+
+**参考答案**（诚实承认，体现工程反思）：
+> 有几个已知问题/边界：
+>
+> 1. **chunk_id 稳定性 vs 内容变化的权衡**：如果 chunk_id 用内容 hash 派生，文件小改会让整块 chunk_id 变，embedding 全重算（浪费）；如果用行范围派生，插入一行会让后续 chunk 错位。CodeWiki 的切分策略在这个权衡上没有完美解，是工程取舍。
+> 2. **embedding 模型升级要全量重算**：换 model 必须重建该 repo 所有 embedding，因为不同模型的向量空间不兼容。表里按 `model` 分区就是为了支持多模型共存，但切换仍是重活。
+> 3. **retrieval trace 当前没持久化**：`/graphrag/traces/{trace_id}` 还是 `not_persisted_yet`，意味着检索过程目前不能事后完整回溯，只能拿到结果。这是已知待补的。
+> 4. **启发式解析的边可能有误**：跨文件 call/reference 解析是启发式 + 置信度标注的，不是语言服务器级精确语义分析，重名函数、动态调用会解析错。我们用 confidence + is_inferred 标注，但没消除。
+>
+> 这些都是工程边界，不是致命问题，但面试时诚实说出来比假装完美强。
+
+---
+
+### Q13. ⚠️ 讲一下大模型的幻觉问题是怎么产生的？
+
+> ⚠️ **现场失分点**：面试官明确说"这个理解不是特别准确，下来可以再学一下"。这道题必须重新校准。下面给标准技术解释。
+
+**参考答案**（校正版，从模型机制讲）：
+> 幻觉的本质是**大模型是概率生成模型，不是检索系统**——它生成的是"在当前上下文下概率最高的 token 序列"，而不是"事实正确的 token 序列"。产生原因从机制上分几层：
+>
+> 1. **训练目标决定它是"流畅"而非"正确"**：LLM 训练目标是 next-token prediction（预测下一个词），优化的是"像人话、连贯"，不是"符合事实"。当训练数据里某模式出现频率高，模型就倾向于生成它，哪怕事实不符。
+> 2. **知识存储是参数化的、隐式的**：模型把知识压缩进权重，没有"知识库 + 检索"的明确边界。问一个事实，它不是去查，而是从权重里"回忆"出一个概率分布——回忆不准就是幻觉。这与传统数据库的精确检索根本不同。
+> 3. **训练数据本身的噪声**：训练语料里有错误信息、过时信息、虚构内容（小说、对话、合成数据），模型分不清"这是事实"还是"这是某文档里的虚构陈述"，照单全收学习。
+> 4. **上下文冲突 / 知识截止**：模型训练有截止日期，问训练后的事实它没有，但生成本能驱使它"编一个看起来合理"的答案，而不是说"我不知道"。强上下文里如果用户暗示了错误前提，模型会顺从上下文（sycophancy）。
+> 5. **长尾知识采样不足**：高频知识训练得多、记得准；长尾/冷门知识训练样本少，权重里表示模糊，生成时容易张冠李戴。
+> 6. **解码策略**：高 temperature / top-p 采样增加随机性，放大幻觉；greedy 也会因为概率次优路径出错。
+>
+> 一句话：**幻觉不是 bug，是概率生成模型的固有特性——它优化"说得像"，不优化"说得对"**。消除幻觉在原理上不可能，只能靠外部约束（RAG、引用校验、工具验证）把它压到可控范围。
+
+**为什么你之前答得不准**（推测）：很可能你答成了"幻觉是因为模型没见过/数据不够"或者"是因为 prompt 写得不好"——这些是表层诱因，不是根因。根因是**概率生成机制 + 参数化知识存储**，要从这个机制层讲。
+
+### Q14. 如何防治模型的编造不存在的信息 / 幻觉问题？
+
+**参考答案**（结合 CodeWiki 的真实防幻觉设计）：
+> 原理上幻觉消不掉，工程上靠**"不让模型凭记忆生成，强制它基于证据 + 校验输出"**。CodeWiki 里这套做得比较硬：
+>
+> 1. **RAG 提供事实，不让模型凭参数记忆**：Ask 和 Wiki 生成都先走 GraphRAG，把 source chunks、graph facts、community summaries 作为事实输入，模型基于证据组织，不是自由回忆。
+> 2. **source refs 是硬约束，不是装饰**：Wiki 页面生成必须返回 JSON，里面引用的 `source_refs` 必须在**检索 trace 提供的 allowed refs 范围内**。模型不能引用没检索到的东西。校验失败进 repair。
+> 3. **citation 校验**：Markdown 里的 citation marker 必须对应合法 source ref，服务端把 LLM 自己写的非法引用过滤掉。
+> 4. **Mermaid 图服务端生成**：不让 LLM 画图（它画图极易幻觉出不存在的调用关系），LLM 只放 placeholder，Mermaid 由 `_mermaid_diagrams_from_trace()` 基于图事实生成，服务端统一校验。
+> 5. **LLM 缓存 + prompt version**：`llm_run` 表记录每次调用的 prompt version、model、token、response，既做缓存又做审计，发现某版本 prompt 系统性幻觉能回滚。
+> 6. **校验修复回路**：目录生成最多重试 3 次，把 validation_errors + repair_instructions 回灌让模型修，不是直接用首次输出。
+> 7. **诚实边界标注**：不确定的部分用置信度标注，不强行编。
+>
+> 通用层面（不止 CodeWiki）：
+> - **降低 temperature**（事实性任务用 0~0.3）。
+> - **system prompt 显式约束**："如果上下文没有依据，回答'未找到'，不要编造。"
+> - **工具验证**：让模型调工具查证（如查 API 文档、跑测试），而不是凭记忆。
+> - **多路召回 + 交叉验证**：关键事实多源核对。
+>
+> 一句话原则：**把模型当"表达引擎"不当"知识库"——事实从外部给，输出被外部校验**。
+
+---
+
+### Q15. AST 解析我看是自研的，讲一讲这个自研的 AST 解析引擎
+
+**参考答案**（基于真实实现：tree-sitter + capture_engine + 每语言 augmenter/spec）：
+> 说"自研"更准确是**基于 tree-sitter 之上自研了一套统一捕获层**，不是从零写解析器。架构分几层：
+>
+> 1. **底层解析器**：用 tree-sitter 的 `Language/Parser/Query`，支持 Python/Java/Go/Rust/C/C++/C#/TypeScript/TSX/JavaScript/JSX。tree-sitter 负责把源码解析成 CST（具体语法树）。
+> 2. **capture_engine（自研核心）**：`TreeSitterCaptureParser` 不直接遍历 CST，而是用**统一的语义 capture name** 驱动查询。每种语言有一个 `capture_spec`（定义该语言的 tree-sitter query + capture name 映射），parser 跑 query 拿到 capture，再 `records_from_capture_query` 转成 `DefinitionRecord`。
+> 3. **统一产物 AstSymbol**：所有语言的捕获结果归一化到同一个 `AstSymbol` 结构——`type/name/file_path/start_line/end_line/signature/docstring/imports/calls/references/bases/implements/decorators`。这样下游 GraphBuilder 不用关心是 Python 还是 Java。
+> 4. **augmenter（语言增强）**：每语言一个 augmenter（python.java.go.rust.c.cpp.csharp.ecma），处理语言特有的补充信息，比如 Python 的装饰器、Java 的 implements、JS 的 export 模式。
+> 5. **normalization**：`signature_text` 把不同语言的签名归一化成可比较的文本。
+> 6. **并发 + 容错**：`parse_scanned_files` 用 ThreadPoolExecutor（默认 `min(file_count, cpu_count, 4)`），每个 worker fork parser 避免状态冲突；捕获 `SyntaxError` 记录到 `parse_errors` 继续跑，不让一个坏文件挂掉整个仓库。
+>
+> 为什么这么设计：**统一性比单语言精确性重要**。我们要的是"所有语言的调用关系、引用、继承都能落到同一张图上"，而不是每种语言都做语言服务器级精确推导。代价是跨文件解析是启发式 + 置信度标注的，不是 100% 精确，但够用。
+
+### Q16. 里边的变量、函数、全局变量、class 类这些，是在 AST 里存还是在数据库里存？
+
+**参考答案**：
+> **两层都存，职责不同**：
+>
+> 1. **AST 层（瞬时产物）**：解析时产生 `AstSymbol` 列表，包含函数、方法、类、变量等的定义信息（name/signature/行范围/imports/calls/...）。这是解析的中间产物，不直接持久化原始 AST。
+> 2. **数据库层（持久化）**：`GraphBuilder` 把 AstSymbol 转成图节点存库。具体：
+>    - **节点表 `code_node`**：存 file/config/class/function/method/endpoint/schema 等节点，每个节点有 type、name、file_path、start_line/end_line、signature、docstring 等。
+>    - **边表 `code_edge`**：存 contains/defines/imports/exports/inherits/implements/calls/references/routes_to/uses_config，每条边带 confidence、is_inferred、reason、provenance。
+>    - **chunk 表 `code_chunk`**：源码片段（按符号或固定大小切），带 FTS 和可选 embedding。
+>    - **AST 缓存**：`ast_cache` + `source_file_cache` 会缓存解析结果，增量更新时 unchanged 文件直接复用，不重解析。
+>
+> 关于"全局变量"：全局变量这种没有显式 def 节点的，通过 capture 里的 reference/assignment 捕获，作为 reference 边或 file-level symbol 存，不单独建一类节点（避免图膨胀）。**类的成员变量**归到 class 节点下，**局部变量**不持久化（作用域太局部，对代码理解价值低）。
+>
+> 一句话：**AST 是解析期的中间结构，数据库存的是从 AST 提炼出的图节点/边/chunk，是持久化产物**。
+
+### Q17. 为什么会选择 GraphRAG？
+
+**参考答案**（对标普通 RAG 讲差异化）：
+> 选 GraphRAG 是因为代码场景下**普通 RAG 的召回质量不够**，核心痛点有三个：
+>
+> 1. **代码含义依赖结构上下文**：一个函数的含义取决于它的调用方、被调用方、所属类、导入关系。普通 RAG 按文本相似度召回孤立 chunk，会召回"词相似但结构无关"的片段，漏掉真正有依赖关系的代码。GraphRAG 先找 symbol seed 再沿图扩展（calls/references/imports/inherits），把**依赖上下文一次性补全**。
+> 2. **代码里大量专有名词**：函数名、文件路径、API 路径、配置项——这些需要关键词精确命中（FTS 强），也需要结构扩展（图强）。纯向量检索对专有名词不稳定，纯 FTS 不懂结构。GraphRAG = FTS/符号 seed + 图扩展，两者互补。
+> 3. **Wiki 生成需要系统化组织**：生成 Overview/Architecture/API/Workflow 这种长文档，模型需要仓库的结构化全景，不是几个相似 chunk。社区摘要 + 图边能提供模块级视图，普通 RAG 给不了。
+>
+> 诚实边界：**单文件内简单任务，GraphRAG 和普通 RAG 差不多**，增益集中在跨模块、跨文件场景。不夸大成"全面碾压"。
+
+### Q18. ⚠️ GraphRAG 存在 token 爆炸问题，怎么解决？
+
+> ⚠️ **现场你说"没了解过"，面试官补了背景：基于图谱一级一级往下查，多级查询 token 量很大。** 这题必须补上。
+
+**参考答案**（校正版）：
+> 这个问题真实存在，根因是：图扩展如果不加约束，从 seed 沿 calls/references 多跳扩展，子图会指数膨胀，把所有沿途节点/边/chunk 塞进 context，token 爆炸。CodeWiki 里用几个机制控制：
+>
+> 1. **token budget 硬约束**：检索时有 `graphrag_context_token_budget`（默认 8000）和 `graphrag_max_source_chunks`。`select_source_chunks` 会按预算选 chunk，超预算的丢——单个 chunk 超预算丢、总 token 超预算丢。
+> 2. **扩展深度限制**：图扩展不是无限制 BFS，有最大跳数控制，避免无限往下挖。
+> 3. **社区摘要代替全量子图**：不把整个社区的节点都塞进去，而是用 `community_summaries`（社区级的摘要）代表一个模块，token 远小于原始节点集合。模型看到的是"模块 A 调用模块 B"这种聚合视图，不是几千条边。
+> 4. **噪声过滤**：扩展时过滤低置信度边（is_inferred + confidence 低的不扩展）、external 节点不进社区图，减少无效上下文。
+> 5. **分层检索**：先社区级（粗，token 小）定位相关模块，再在该模块内做符号级（细）检索，不是一开始就全图展开。
+> 6. **context pack 结构化**：最终给模型的是精选的 source chunks + 相关 nodes/edges + community summaries，每类有独立预算，不是把整张子图糊进去。
+>
+> 一句话：**用预算 + 深度限制 + 社区摘要聚合 + 噪声过滤，把"多级图查询"从指数膨胀压成线性可控**。
+
+### Q19. 怎么解决代码的多版本问题？多个分支、多个提交、多个 tag
+
+**参考答案**（诚实承认边界 + 讲现有机制）：
+> 诚实说，**CodeWiki 当前不是为多版本并行设计的**，它面向的是"一个仓库一个当前快照"。但有几个相关机制可以讲：
+>
+> 1. **repo_id 隔离**：repo_id 用解析后路径的 SHA1 前 16 位生成，不同 clone 路径或不同分支 checkout 会有不同 repo_id，物理隔离成独立图。理论上可以同机并存多个版本，但不是自动管理。
+> 2. **commit_hash 记录**：`RepoDescriptor` 里有 commit_hash，每次分析记录当前 HEAD，知道这次图对应哪个提交。
+> 3. **增量更新走 git diff**：在同一个 checkout 上，从一个 commit 到另一个 commit 用 git diff 增量更新，不用全量重建。
+>
+> 但**不支持"同时保留多个分支/tag 的图并跨版本查询"**——比如"对比 v1.0 和 v2.0 的架构变化"，当前做不到，要 checkout 到对应版本重新分析。
+
+### Q20. （追问）我想查一个月之前的代码版本，这个有解决吗？
+
+**参考答案**（诚实承认 + 给方案）：
+> **当前没解决**。CodeWiki 的图是"当前工作区快照"，查一个月前的代码需要 checkout 到那个 commit 重新 `analyze`，会覆盖当前图（除非用不同 repo_id 隔离）。
+>
+> 如果要解决，设计方向：
+> 1. **按 commit 存多快照**：图节点/边带 `commit_hash` 维度，同一文件不同 commit 的节点共存，查询时指定 `as_of=commit`。代价是存储膨胀，要靠增量 diff 只存变化部分。
+> 2. **git blame / history 集成**：节点带"最后变更 commit + 时间"，查询历史版本时用 git worktree 或临时 checkout 分析。
+> 3. **时间旅行查询**：保留关键 tag 的快照图，跨版本对比靠图 diff（哪些节点新增/删除/改了边）。
+>
+> 但这是**未来 roadmap，不是已实现**。面试诚实说：当前场景聚焦"理解当前代码"，历史版本追溯是明确待补的能力。
+
+### Q21. 整个项目有没有用到 vibe coding，用了多少？占多少？
+
+**参考答案**（如实给比例 + 讲边界）：
+> 用了。CodeWiki 这个项目里大概 **60%~70% 的代码是 vibe coding 产生的**（Cursor / Claude Code 类工具辅助），但不是无脑全交。具体分工：
+>
+> - **vibe coding 适合的部分**（约 60-70%）：CRUD 接口、DB schema、tree-sitter capture spec 这种模式化代码、前端 React 组件、Mermaid 图生成、测试用例骨架——这些**边界清晰、可验证、错了能跑测试发现**的部分，让 agent 写效率高。
+> - **自己设计/手写的部分**（约 30-40%）：核心架构决策（七层分层、graph 中心 vs chunk 中心）、GraphRAG 检索策略（token budget、扩展深度）、防幻觉的 source refs 校验逻辑、增量更新的 diff 策略——这些**需要全局权衡、错了不易发现**的部分，自己设计。
+> - **review 兜底**：vibe coding 产出的代码我都过了一遍，尤其校验逻辑、并发、增量正确性，不能盲信。
+>
+> 我对 vibe coding 的看法：**它是放大器，不是替代品**。对"懂的人"是 10x 提效——你能快速验证、能看出 agent 写错的地方；对"不懂的人"是风险——产出看着像样但架构烂、边界没考虑，还不容易发现。所以**用 vibe coding 的前提是你能 review 得动**。
+
+---
+
+## 五、Agent 记忆系统
+
+### Q22. 简单讲一下 agent 的记忆系统做了些什么
+
+**参考答案**：
+> 做了一套**单用户、多会话的分层记忆 + 上下文压缩系统**，核心解决"agent 跨会话失忆"和"长对话 token 爆炸"两个问题。四层结构：
+>
+> - **L0 — 原始对话层**：完整原始对话记录，不加工，兜底溯源。
+> - **L1 — 会话摘要层**：单次会话压缩摘要，去冗余保关键。
+> - **L2 — 结构化事实层**：从对话抽取的实体/属性/偏好，可检索可更新。
+> - **L3 — 长期画像层**：跨会话沉淀的稳定用户画像，最抽象最稳定。
+>
+> 越往上越抽象稳定、体积越小；压缩就是 L0 逐层蒸馏到 L1/L2/L3。
+> 时机上：L0 实时落库，L1/L2 异步触发（会话结束或达 token 阈值），L3 是累积晋升（多次出现/高置信度才进）。
+> 取用时：L3/L2 常驻加载，L1 按相关性召回，L0 兜底下钻。
+
+### Q23. 结构化记忆和非结构化记忆，都是怎么更新删除的？
+
+**参考答案**：
+> 分两类讲：
+>
+> **结构化记忆（L2 事实 / L3 画像）**：
+> - **更新**：抽取新事实时先做**冲突检测**——同一实体同一属性值不同，不硬删。可变属性（当前项目、状态）按**时间戳覆盖**（新值生效，旧值标过期但保留可溯源）；不可变属性（姓名）冲突时**降置信度 + 标记冲突**，下次向用户确认，不盲目覆盖。
+> - **晋升**：L2 事实多次出现/高置信度/跨会话稳定，才晋升 L3；单次低置信度留 L2 候选区。
+> - **删除**：合规要求时按 user_id 全链路删（L0~L3 + 向量索引），满足"被遗忘权"。业务上不随机删，用**时效衰减 + 降权归档**——超有效期未刷新的降置信度归档，不立即删，保证可回溯。
+>
+> **非结构化记忆（L0 原始 / L1 摘要）**：
+> - **L0**：保留一段时间后转冷存储，L1 摘要替代其位置，需要溯源才回查。不主动删，归档。
+> - **L1**：会话摘要生成后覆盖式更新（同会话的新摘要替换旧摘要），L0 仍在冷存储。
+>
+> 原则：**遗忘不是删除，是降权 + 归档**；硬删只在合规场景按 user_id 全链路做。
+
+### Q24. 有没有删除？删除是怎么做的？
+
+**参考答案**（如果面试官追问"不存在删除是吗"）：
+> 业务常规流程**不做硬删除**，做降权归档。只有两个场景硬删：
+> 1. **合规/被遗忘权**：用户要求删除或合规要求，按 user_id 全链路删——L0 原始、L1 摘要、L2 事实、L3 画像、向量索引，一条不留，可审计。
+> 2. **冲突替换的旧值**：被新事实覆盖的旧值，标记过期归档（严格说是软删，不物理删，便于溯源回滚）。
+>
+> 不做硬删的原因：记忆系统是用户数据托管者，**可溯源 + 可回滚**比节省存储重要。降权归档让旧记忆不污染召回，但需要时能找回。硬删是不可逆操作，只在合规场景走。
+
+---
+
+## 六、开放性趋势题
+
+### Q25. 从 LLM → workflow → OpenCloud/Claude Code 这些成熟的智能编码平台/工具，谈谈发展趋势的理解
+
+**参考答案**：
+> 我把这条演进线理解为**"从单次推理 → 编排 → 自主智能体"的逐层外移**，每一层都在把更多"人的判断"交给工程框架：
+>
+> 1. **LLM 层**：单次 prompt→response，模型只会输入输出，没有状态、没有工具、没有记忆。能力是"语言理解与生成"。
+> 2. **Workflow 层**：把多个 LLM 调用 + 工具 + 规则编排成确定性流程（DAG），比如 RAG pipeline、Text-to-SQL。人定义流程，模型填空。能力是"可复现的多步任务"，但流程是死的。
+> 3. **Agent / Coding Agent 层（Claude Code / Codex / Cursor Agent）**：把"决定下一步做什么"也交给模型——模型在 harness 里循环调工具、读结果、再决策，harness 提供工具协议、上下文管理、状态持久化。能力是"自主完成开放任务"，流程是活的。
+> 4. **平台化（OpenCloud / 企业智能编码平台）**：把 agent + 记忆 + 知识库 + 评测 + 权限打包成平台，服务团队/企业，不只是个人工具。
+>
+> 趋势我看到的几个方向：
+> - **从"模型为中心"转向"工程框架为中心"**：模型越来越同质化，差异化在 harness/记忆/工具/上下文管理。谁把上下文治理好、把工具协议设计好，谁的 agent 就强。
+> - **从"给人看的代码"转向"给 AI 看的代码表示"**：现在代码还是人写的文本，未来可能演变成对 AI 更友好的结构化表示（图、IR），AI 读写都不再经过纯文本。
+> - **记忆与长期上下文成为核心**：单次窗口再大也不够，分层记忆 + 持续学习是 agent 从"一次性助手"走向"长期协作者"的关键。
+> - **评测与可信**：agent 越自主，越需要可观测、可回滚、可审计。SWE-bench 这类评测会越来越重要。
+>
+> 诚实补充：这条路还在早期，没有谁有终局方案，包括 Claude Code 也只是在老编辑器上跑了新引擎，最终形态（树形编辑器？AI-native IDE？）还没定。
+
+### Q26. 下一个风口模型/框架应该朝什么方向发展？
+
+**参考答案**：
+> 我判断几个方向（带不确定性，不是预言）：
+>
+> 1. **长上下文 + 持久记忆原生支持**：现在长上下文是"塞进窗口"，未来模型/框架会原生分层记忆，hot/cold context 分离，agent 真正跨会话连续工作。
+> 2. **多模态 agent**：不只是文本，视觉/操作/语音一起，agent 能看屏幕、操作 GUI、读图表——coding agent 能直接看 UI 截图调试，不只是读代码。
+> 3. **Agent 协议标准化**：MCP 这类工具协议会标准化，agent 能跨平台复用工具和数据源，像 HTTP 之于 web。
+> 4. **从"生成代码"到"维护系统"**：agent 不只是写新代码，而是长期维护一个 codebase——理解历史决策、做兼容性修改、自己跑测试和部署。这对记忆和图谱（如 CodeWiki 这类）需求很强。
+> 5. **小模型 + 强框架**：超大模型成本高，趋势是"够用的小模型 + 精强的工程框架（检索/记忆/校验）"完成大部分任务，大模型只在难任务上调。
+> 6. **可验证性**：agent 输出能被自动验证（测试、形式化、引用校验），从"看起来对"到"证明对"。
+>
+> 我自己押注的方向是**记忆治理 + 上下文工程**——这也是我做 agent 记忆系统和 CodeWiki 的原因，模型同质化后，这层是差异化。
+
+### Q27. 聊聊你对 vibe coding 的看法和使用心得
+
+**参考答案**：
+> 几点心得（结合实战）：
+>
+> 1. **vibe coding 是放大器，不是自动驾驶**：对懂的人 10x 提效，对不懂的人埋雷。前提是你能 review 得动产出——能看出架构问题、边界遗漏、并发坑。不能盲信。
+> 2. **边界清晰的任务交给它**：CRUD、模式化代码、测试骨架、前端组件——边界清楚、可验证、错了能跑测试发现。架构决策、核心校验逻辑、并发/增量正确性——自己设计。
+> 3. **上下文给够**：vibe coding 失败 80% 是上下文没给够。把相关文件、约束、示例、要避免的坑都喂进去，产出质量天差地别。
+> 4. **小步快跑 + 频繁验证**：不要让 agent 一次写一大坨，写一点跑测试、review、再继续。一次产出越多，错误越隐蔽。
+> 5. **风险意识**：Claude Code 被爆过后门风险，公司虽没禁用但要警惕——敏感代码/数据不要轻易喂，私有仓库注意隔离。Codex / OpenCloud / 国内 Cursor 平替看个人喜好，没有绝对优劣。
+> 6. **它改变的是写代码的粒度**：从"写一行"变成"描述一个意图 + review 一段"。工程师的价值从"打字"转向"架构 + 评审 + 边界定义"。
+>
+> 诚实说：**vibe coding 让"能写代码"贬值，让"能判断代码好坏"升值**。未来工程师的核心能力是设计、评审和兜底，不是手写。
+
+---
+
+## 七、反问环节（你提问 + 面试官回应）
+
+### 面试官回应要点（已整理）：
+- **工具使用**：目前公司没限制用 Claude Code，但被爆过后门有风险，公司暂未通报禁用；Codex、OpenCloud、国内 Cursor 平替（workbody 等）看个人喜好。
+- **采购**：公司有说采购，但一直没下来。
+- **最大挑战**：技术/经验已经不是挑战，行业和生态都在向 AI 落地倾斜，困难点在**怎么向 AI 方向落地**——招 CodeWiki 岗位本身是探索性质。公司战略在向 AI 靠近，要积极拥抱变化。
+- **未来形态**：Claude Code 是程序员方向的一个落地案例，但它也是在老机器上跑新引擎，最终形态（树形编辑器？AI-native？）不确定。**现在的代码是给人看的，以后的代码可能是给 AI 看的，AI 看的是什么形式还不确定。**
+
+### 你可以反问的方向（备选）：
+1. 团队目前在 AI 落地上遇到的最大卡点是数据、评测还是产品形态？（呼应他说的"落地难"）
+2. CodeWiki 这个岗位招进来后，短期 3 个月最想解决的具体问题是什么？（务实）
+3. 团队对"给 AI 看的代码表示"有没有在探索方向？（呼应他提的未来形态，展示思考）
+
+---
+
+## 八、复盘：这次面试的得失
+
+### 失分点（必须补）：
+1. **幻觉产生机制**——被明确指出"理解不准确"。根因要记牢：**概率生成 + 参数化知识存储**，不是"数据不够/prompt 不好"这种表层。
+2. **Loop / Loop Engineer 概念**——往"社会化协作/开发周期"答偏了。校正：**harness 是包裹模型的外层工程框架，loop 是让 agent 任务闭环（执行→观察→反馈→修正）**，概念开放但要有自己的工程化解读，不硬套社会学框架。
+3. **GraphRAG token 爆炸**——说"没了解过"。这是 GraphRAG 的经典问题，必须会答：**token budget + 深度限制 + 社区摘要聚合 + 噪声过滤**。
+4. **多版本/历史代码查询**——诚实说没做是对的，但要能给出解决方案（按 commit 存多快照 + 图 diff），不能只说"没做"。
+
+### 得分点（继续巩固）：
+- CodeWiki 架构讲得清楚（七层 + graph 中心）。
+- 向量库选型有理有据（跟随主存储、向量可选、本地优先）。
+- 向量库更新删除讲到了主键对齐这个关键点。
+- AST 自研引擎能讲到 tree-sitter + capture_engine + 统一 AstSymbol。
+- agent 记忆系统四层 + 冲突处理 + 晋升机制讲得扎实。
+
+### 下来要补的：
+- 重新学幻觉的机制原理（建议看综述：*Survey on Hallucination in LLMs*）。
+- 跟进 Loop Engineer / harness 的社区讨论，形成自己的标准表述。
+- GraphRAG token 控制能举具体数字（budget、max_chunks、深度）。
+- 多版本图管理，准备一个设计草稿，被追问时能展开。
