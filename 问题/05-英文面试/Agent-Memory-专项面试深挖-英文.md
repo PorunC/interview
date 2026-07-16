@@ -1,28 +1,26 @@
-# AI Agent Long-Term Memory & Context Compression System Deep-Dive Blog (CMB Network Technology · In-House Edition)
+# AI Agent Long-Term Memory & Context Compression System Deep-Dive (In-House Edition)
 
-> Scope: English supplementary material for the in-house Agent Memory project. When this file conflicts with the current Chinese project document, use `../03-Agent-Memory/Agent-Memory-端到端系统深挖.md` as the factual baseline.
-
-> Evidence warning: several compliance, canary, incident, and latency figures in this supplementary draft are scenario drills rather than facts established by the current source tree. Do not present them as personal production experience unless matching internal tickets, dashboards, or evaluation reports exist.
+> Evidence boundary: this is English supplementary material, not an independent source of facts. Current behavior must match `../03-Agent-Memory/Agent-Memory-端到端系统深挖.md`, the checked-in TypeScript source, and stored benchmark reports. WideSearch and PersonaMem values are benchmark-specific, not production-wide averages. Production tenure, business-channel adoption, traffic, operational impact, recovery time, compliance process, team interaction, and personal ownership require internal records. Rollout, scale-out, failure response, and bank-compliance sections are scenario/design answers unless a paragraph explicitly names a source-verified mechanism.
 
 > This blog is an expanded version of Chapter 2 (Agent Memory) from the *AI-Agent Interview Deep-Dive Blog*, focused on the resume entry "AI Agent Long-Term Memory & Context Compression System (Independently Owned)."
 >
-> Content positioning: the long-term memory mid-tier service for an **in-house Agent platform**. Covers project justification, architecture decisions, production launch, online incidents, development pitfalls, and cross-team collaboration.
+> Content positioning: a host-neutral Agent Memory implementation and a set of interview design drills. It covers architecture decisions, source-visible failure modes, benchmark evidence, and hypothetical productionization.
 >
-> How to read: each section = one real point an interviewer can drill into. Items marked ⚠️ are minefields where a wrong answer costs points.
+> How to read: always label an answer as current implementation, recorded benchmark, fact requiring confirmation, or scenario design. Do not use the presence of code safeguards as proof that a corresponding operational event occurred.
 
 ---
 
 ## 0. The "Hook" This Project Provides on a Resume
 
-This is how I wrote it on my resume:
+Source-safe interview version:
 
-> Designed from scratch an L0–L3 multi-tier memory architecture + Hybrid RRF fusion recall + context offload & tool-log compression. The system is in production covering multiple business channels. **Token consumption reduced by 61%, task pass rate improved relatively by 52%, long-term memory accuracy improved from 48% to 76%.**
+> I worked on an L0–L3 memory architecture, Hybrid RRF recall, and recoverable context offload. In the stored benchmark configuration, WideSearch token usage fell by 61.38% while pass rate moved from 33% to 50%, and PersonaMem final-answer accuracy moved from 48% to 76%. These are benchmark results; business-channel adoption and production scope must be supported separately.
 
-**Hook keywords**: tiered, symbolic, dual pipeline, Mermaid, Hybrid RRF, host-neutral, prompt cache busting, checkpoint, in-house multi-channel. Any single one will tempt an interviewer to dig deeper.
+**Hook keywords**: tiered memory, symbolic compression, dual pipeline, Mermaid, Hybrid RRF, host-neutral integration, prompt-cache stability, and checkpoint recovery. Any one of these can lead to a deep follow-up.
 
 **One-sentence business context**:
 
-> In our bank, we have multiple Agent systems — customer-service Agent, R&D-productivity Agent, Ops-Q&A Agent, risk-control-assist Agent. Initially, each one built its own buffer/summary, which meant the same relationship manager got inconsistent memory across different Agents. What I built extracts "long-term memory" and "tool log compression" into a **unified in-house mid-tier service** shared by all Agents.
+> The implementation separates a host-neutral `TdaiCore` from its adapters. OpenClaw integrates in process through hooks, Hermes can use the HTTP Gateway, and standalone modes reuse the same core. That proves multiple integration shapes; it does not prove adoption by named business teams or a particular user population.
 
 ---
 
@@ -30,30 +28,25 @@ This is how I wrote it on my resume:
 
 ## 1.1 Why not directly adopt an open-source Memory solution when the project kicked off?
 
-**Typical question:** The industry already has several categories of open-source Memory solutions (fact-extraction style, rolling-buffer + global-summary style, long-term-memory paper implementations) — why did the bank still need to build its own?
+**Typical question:** The industry already has fact-extraction, rolling-summary, and research-oriented Memory solutions. Why did we still build an in-house system?
 
 **Interview answer:**
 
-We surveyed and benchmarked the major categories when we kicked off, and ultimately didn't use any of them. Four reasons:
+I would not claim that every open-source product was benchmarked or categorically rejected unless I had the comparison record. The defensible answer is that the project needed a specific combination of capabilities:
 
-First, **they solve "context management for short sessions" but don't solve the tool-log explosion in long tasks.** Fact-extraction solutions are essentially message-level fact extraction + flat vector storage; buffer/summary solutions are essentially rolling buffer + global summary. But our in-house R&D Agent can run dozens of tool-call rounds in a single task — work orders, SQL, logs running into hundreds of thousands of tokens — and not a single open-source solution handles "traceably offloading tool-call logs from context."
+First, long-term memory and short-term Tool Result offload are separate problems. This project preserves large tool outputs outside the prompt and keeps `node_id` / `result_ref` references for recovery.
 
-Second, **banking scenarios have strong data-compliance and audit requirements.** Open-source solutions default to writing data locally or to third-party SaaS; we must guarantee:
-- All data stays within the in-house network (no external APIs for embedding or extraction);
-- Every LLM call / memory read-write has a complete audit log traceable by regulators;
-- Customer sensitive information (national IDs, phone numbers, bank card numbers, customer names) must be redacted before persisting.
+Second, a deployer may need local-first storage, approved model endpoints, provenance, retention, deletion, and audit controls. Those are application responsibilities even when a framework provides part of the plumbing.
 
-Open-source libs **don't and won't** do any of this.
+Third, L0 evidence, L1 atomic memories, L2 scenes, and L3 persona have different trust and lifecycle requirements. The stored PersonaMem benchmark reports 48% and 76% for its recorded variants, but without an ablation report I would not assign that gain to one layer.
 
-Third, **evaluation goals dictated that we needed a persona pyramid, not a fact-store.** Our customer-service Agent has a "personalized for every user" goal — the same relationship manager visits, and the system should remember their preferred speaking style, the business types they commonly handle, and common error patterns. In our experiments, pure vector recall + LLM summarization only reached ~55%. What actually pulled the score to 76% was the aggregation chain of "L0 → L1 atom → L2 scenario → L3 persona" — letting the Persona tier serve as a stable prior while the L1 tier handles precise factual answers.
+Fourth, the host-adapter boundary lets the same core run in process or behind a Gateway. That is the project's concrete integration choice, not proof that no competing library supports multiple hosts.
 
-Fourth, **unified mid-tier requirement.** The bank has multiple Agent systems. Open-source libs are embedded — having each Agent install its own copy leads to version drift, non-interoperable data, and N separate compliance-audit setups. We needed a **host-neutral mid-tier + multi-Agent adapter** — a position no open-source lib occupies.
-
-So our judgment was: **Memory is not "store + search"; it's the seven-step lifecycle of "extract + aggregate + compress + recall + drill-down + update + audit."** No off-the-shelf library delivers this.
+So the scoped judgment is: for this project, Memory is a lifecycle of capture, extraction, aggregation, recall, offload, drill-down, and update rather than only `add` and `search`. Competitor capabilities must be checked against their current versions.
 
 **Key drilling points:**
-- If asked "specifically where you surpass open-source": the traceable evidence chain (`Persona → Scenario → Atom → Conversation`) + the Mermaid short-term pipeline for tool logs + in-house compliance and audit + multi-Agent mid-tier.
-- If asked "why not fork an open-source solution and modify it": mainstream open-source solutions' core abstraction is literally just two steps — `add(text)` + `search(query)`. There is no place to slot in "pipeline scheduling + checkpoint + warm-up + multi-host adapter + audit log." Adapting one to this shape is effectively a rewrite.
+- If asked about differentiation, describe the evidence chain, recoverable Tool Result offload, explicit pipeline scheduling, and host adapters. Do not say the project is universally superior.
+- If asked why not fork a framework, compare extension points, data model, deployment, licensing, migration cost, and team familiarity for the exact version under consideration.
 - If asked "what specifically does compliance require": see Section 1.6.
 
 ---
@@ -68,82 +61,56 @@ This is one of the easiest points to get smacked on in an interview, so I'll be 
 
 **They don't solve the same problem:**
 
-- **The long-term pipeline** performs **cross-session** semantic distillation: from raw utterances → atomic facts → scenarios → persona. Trigger is `session_end`, running **asynchronously** after the fact. The goal is to provide material for the next recall.
+- **The long-term pipeline** performs **cross-session** semantic distillation: raw utterances → atomic facts → scenes → persona. Capture starts when a turn is committed. L1 is then scheduled by the warm-up/conversation threshold, an idle timeout, or an explicit flush. L2 has its own post-L1 and maximum-interval scheduling, and L3 is considered after L2. So `session_end` is only one flush path; it is not the only trigger for the long-term pipeline.
 - **The short-term pipeline** performs **intra-session** token governance: from tool results → summary + refs → Mermaid canvas → context compression. Trigger is `after_tool_call` / `before_prompt_build`, running **in real time**. The goal is to save tokens right now, in the current LLM call.
 
-These two things couple at exactly one point: **a task canvas produced by the short-term pipeline may eventually be promoted into a reusable SOP / L2 Scenario and injected back into the long-term pipeline.** But that's a "promotion" channel, not a synchronous relationship.
+**Current implementation:** these are independent data paths. An Offload Mermaid canvas is not automatically promoted into a long-term L2 scene, and there is no frequency-based SOP promotion. Offload L4 is a separate, explicit `/create-skill` flow in backend mode: the user selects an MMD, the backend generates a Skill, and the result is written under `skills/`. That stays inside the Offload feature; it is not a bridge into long-term memory.
+
+**Next version:** if I wanted Offload results to become long-term memory, I would add an explicit, reviewed ingestion contract with provenance, deduplication, and deletion semantics. I would not silently copy an MMD file into `scene_blocks/` because those two L2 labels have different meanings.
 
 **Why not merge? Because merging causes big problems:**
 
 1. The long-term pipeline is asynchronous, degradable, failure-tolerant; the short-term pipeline must return in real time (otherwise it blocks the LLM call). Their SLOs are completely different.
-2. The long-term pipeline's "L1 extraction" is structured facts produced by an LLM; the short-term pipeline's "L1" is tool-result summaries. Different semantics, different lifecycles, different storage locations (one is a DB, the other is jsonl). Forcing them into the same type hierarchy makes the code an explosion of if/else.
+2. The long-term pipeline's "L1 extraction" is structured facts produced by an LLM; the short-term pipeline's "L1" is tool-result summaries. One writes long-term records and search indices; the other writes Offload entries and result references. Forcing them into one type hierarchy would mix unrelated semantics and lifecycles.
 3. Triggers are completely different: long-term is turn-level; short-term is tool-call-level. Stuffing them into the same scheduler means a problem in one affects the other.
 
-⚠️ **Don't be fooled by the names** — they both use "L1 / L2 / L3," which is coincidence (both use layered abstraction), but **in code they are two independent modules** (`memory-core/` vs `context-offload/`). They share the host adapter and LLM runner, but they **do not share data structures, scheduling, state machines, or checkpoints**.
+⚠️ **Don't be fooled by the names.** The code lives in two separate areas, `src/core/` and `src/offload/`. They are packaged into the same in-house integration, but they do not share layer semantics, data structures, schedulers, state machines, or checkpoint files.
 
 ```mermaid
 flowchart LR
-    subgraph long["Long-term Pipeline (memory-core/)"]
-        L0a["L0 Raw Conversation<br/>jsonl + in-house PG"] --> L1a["L1 Atomic Facts<br/>persona/episodic/instruction"]
+    subgraph long["Long-term Pipeline (src/core/)"]
+        L0a["L0 Raw Conversation<br/>daily JSONL + SQLite/TCVDB index"] --> L1a["L1 Atomic Facts<br/>records JSONL + store index"]
         L1a --> L2a["L2 Scene Blocks<br/>scene_blocks/*.md"]
         L2a --> L3a["L3 Persona<br/>persona.md"]
     end
-    subgraph short["Short-term Pipeline (context-offload/)"]
-        Tool["tool result"] --> L1b["L1 entry<br/>offload.jsonl"]
+    subgraph short["Short-term Pipeline (src/offload/)"]
+        Tool["tool result"] --> Ref["full result<br/>refs/*.md"]
+        Tool --> L1b["L1 summary + result_ref<br/>offload-*.jsonl"]
+        Ref -.-> L1b
         L1b --> L15["L1.5 Task Boundary<br/>decide task complete"]
         L15 --> L2b["L2 Mermaid<br/>mmds/*.mmd"]
         L2b --> L3b["L3 Context Compression<br/>mild/aggressive/emergency"]
-        L2b --> L4b["L4 SOP Deposition"]
+        Cmd["explicit /create-skill command"] --> L4b["L4 Skill Generation<br/>backend mode"]
+        L2b -.-> L4b
     end
-    long -.->|"L4 promoted to reusable SOP"| short
 ```
 
 **Key drilling points:**
-- "What if short-term output also needs to be stored in the long-term store?": treat the mmd canvas as a special L2 scenario, but it must go through `extractL1Memories` to re-run semantic extraction rather than being migrated directly.
+- "What if short-term output also needs to be stored in the long-term store?": that is not implemented today. My next-version design would send selected evidence through an explicit ingestion API and the normal extraction/dedup path, rather than treating an Offload MMD as a long-term L2 scene.
 
 ---
 
-## 1.3 Storage selection: why PG + pgvector + in-house vector DB as dual backend?
+## 1.3 Storage selection: why SQLite plus an optional cloud vector backend?
 
 **Typical question:** When building a Memory system in-house, how do you choose the storage backend?
 
 **Interview answer:**
 
-We went through three rounds of selection on this and landed on a **dual backend + abstract interface** pattern.
+The current implementation uses an `IMemoryStore`-style capability boundary rather than a hard-coded PG migration story. The local path combines SQLite metadata, FTS5/BM25, and optional vector capability; the cloud path uses TCVDB-style dense/sparse retrieval. The exact backend is selected by configuration and capability.
 
-**Round 1: Survey phase**
+SQLite fits local-first, zero-configuration use and keeps structured records, keyword search, and local artifacts close together. Its limits are sustained write contention, multi-process topology, and large multi-tenant operation. A service-backed vector store is appropriate when shared access, operational scale, and server-side retrieval justify its network and governance cost.
 
-5 candidates:
-
-| Option | Pros | Rejection Reason |
-|---|---|---|
-| Embedded SQLite + sqlite-vec | Zero ops, fast on a single node | No sharing across multi-Agent instances; backup/audit difficult |
-| In-house PG + pgvector | Team familiar; backup/audit already in place | pgvector recall latency rises at 1M+ scale |
-| In-house Milvus / self-built VDB | Good large-scale performance | No one on the team knew it; high ops cost |
-| Redis + Vector | Fast in-memory | Weak persistence — unsuitable for "long-term asset" like memory |
-| Mongo Atlas Search | Fast dev | Not on in-house infrastructure whitelist (compliance) |
-
-**Round 2: Decision**
-
-Ultimately chose **PG + pgvector as primary storage + in-house vector DB for scale expansion**:
-
-- **Default primary store**: in-house PG cluster + pgvector extension. Rationale: ① an existing DBA team + backup strategy + monitoring system, zero additional ops; ② pgvector latency acceptable below 1M entries (p95 < 80ms); ③ FTS uses PG's built-in `tsvector` + `pg_trgm` — one data set, one management surface; ④ banks are sensitive to "transactional consistency," and PG's ACID is a hard requirement.
-- **Scale upgrade**: abstract a `IMemoryStore` interface; when a single Agent's data exceeds 5M entries or a single query p95 exceeds 100ms, switch to the in-house vector DB. **Business code doesn't change at all** — one config line: `storeBackend: "vdb"`.
-
-**Round 3: Post-launch validation**
-
-Real data after 6 months in production:
-
-- Customer-service Agent: ~800K conversations, ~300K L1 atoms, PG p95 recall 45ms — **no need to switch**.
-- R&D-productivity Agent: ~1.5M conversations, ~600K L1 atoms, PG p95 recall 78ms — **also no need to switch**.
-- Risk-control Agent: accompanied by massive historical work-order embeddings, ~6M entries, p95 rose to 130ms — **this one switched to VDB**.
-
-⚠️ **The key to this answer**: don't say "I used such-and-such VDB." Say **"I built a storage abstraction and dynamically selected the backend based on data volume."** That's real mid-tier thinking.
-
-**Key drilling points:**
-- "Why not use the in-house VDB from the start?": in-house VDB required 2–4 weeks of approval process; the PG cluster was usable same day. During early validation, speed is paramount.
-- "How did you measure PG p95 at 100ms?": replicated traffic to staging, ran 1000 queries, filtered outliers, took p95.
-- "How did you migrate old data after switching to VDB?": dual-write + shadow read + diff verification + canary traffic cutover, completed in 2 weeks.
+I would choose or migrate backends using a reproducible workload: corpus size, tenant filters, recall quality, p50/p95/p99, write throughput, rebuild time, cost, and failure behavior. The source does not establish a measured migration threshold or a completed backend switch.
 
 ---
 
@@ -153,33 +120,9 @@ Real data after 6 months in production:
 
 **Interview answer:**
 
-In reality, **the customer-service Agent was onboarded first; we were pushed by business needs to refactor when the R&D-productivity Agent came next.** It wasn't pre-designed.
+The source-backed answer is architectural. `TdaiCore` contains the memory behavior; host-specific code translates lifecycle events and runtime services into the core API. OpenClaw registers hooks and tools in process. Hermes can use the HTTP Gateway. Standalone modes reuse the same core. `LLMRunner` and storage capabilities are also abstracted so the core is not tied to one provider or backend.
 
-V0.1 only supported the customer-service Agent (a Python-based Agent framework). The code had `import { CustomerAgentApi }` everywhere — fastest path from an engineering standpoint. Later, the R&D-productivity Agent team (a Node.js graph-state-machine Agent framework) came to discuss integration, and we discovered the two Agent frameworks were vastly different:
-
-| Dimension | Customer-Service Agent (Python) | R&D-Productivity Agent (Node) |
-|---|---|---|
-| Process | Microservices, inter-service HTTP | Worker processes, event bus |
-| LLM entry point | In-house unified AI-compute gateway (HTTP) | Same, but different auth scheme |
-| Hook mechanism | Callback handler | Event subscription |
-| Hook names | `on_message / on_tool_call` | `before_prompt / after_tool` |
-| Config entry point | In-house config center | Environment variables + ZK |
-
-Without the abstraction, we'd have had to duplicate the core logic. But the core logic contains pipeline scheduling, checkpoint persistence, L1 extraction, scene generation, persona generation — over 20K lines total — and maintaining a duplicate would be extremely expensive.
-
-So I did three things:
-
-1. **Extracted `MemoryCore`**: all business logic depends on only three interfaces — `HostAdapter` (provides logger + runtime context) / `LLMRunner` (runs LLM) / `IMemoryStore` (stores data).
-2. **Each host implements one adapter**: `CustomerAgentAdapter` / `DevAgentAdapter` / `OpsAgentAdapter`.
-3. **Exposed as a unified in-house mid-tier service**: `memory-svc.cmb.internal:8420`, providing HTTP + gRPC — any in-house Agent can integrate. Agents with built-in adapters call via SDK; Agents without adapters go through the Gateway compatibility layer.
-
-**Complexity cost-benefit ledger:**
-
-- Code added: the `adapters/` directory, ~800 lines (three adapters + interface) + `gateway/` 600 lines.
-- Code saved: avoided duplicating core logic across N Agent systems (~18K lines per copy).
-- Capability gained: the fourth Agent (risk-control assist) was nearly free — only required an ~150-line adapter.
-
-⚠️ **Never say "I designed for multiple Agents from day one"** — that's a liar's answer; the interviewer will immediately retort, "Then how did you validate the abstraction was correct?" Honestly saying "I was pushed by business needs; the first refactor happened in v0.2, and the second made the core fully host-neutral" actually comes across as more authentic.
+The trade-off is more interfaces, lifecycle handling, and compatibility testing. The benefit is that capture, recall, scheduling, and offload logic do not need to be copied into every host. The source does not establish a particular onboarding history, named internal adopters, or quantified delivery savings.
 
 ---
 
@@ -189,9 +132,9 @@ So I did three things:
 
 **Interview answer:**
 
-We did three rounds of evaluation on this:
+I would answer this as a format trade-off, not as a claim that we ran three formal experiments.
 
-**First attempt: JSON**
+**If I used JSON**, it might look like this:
 
 ```json
 {
@@ -203,107 +146,56 @@ We did three rounds of evaluation on this:
 }
 ```
 
-Problems:
+The trade-offs would be:
 
-1. **High token overhead**: every node's quotes, brackets, key names consume tokens. A 50-node canvas costs roughly 4–5K tokens.
-2. **LLM easily breaks JSON structure**: missing a comma or adding a stray quote, and the next round fails to parse.
-3. **Not human-readable**: during debugging, opening it reveals a wall of braces; you can't immediately tell "where the task is at" — when the R&D Agent encounters issues, ops colleagues need to trace the task chain, and readability is a hard requirement.
+1. **Structural overhead**: repeated keys, quotes, and brackets can consume more tokens; the exact difference depends on content and tokenizer.
+2. **Strict parsing**: one malformed comma or quote can invalidate the whole payload unless I add schema validation and repair.
+3. **Topology is less scannable**: JSON is good for machines, but a task's main path and branches are harder to see at a glance.
 
-**Second attempt: Custom DSL**
+**If I used a custom DSL**, it might look like this:
 
 ```
 [001-N1 done] -> [001-N2 doing] -> [001-N3 todo]
 ```
 
-Problems:
+The trade-offs would be:
 
-1. **Would need to write our own parser** — if an edge case appeared (e.g., a `]` inside a summary), it would explode.
-2. **Can't render directly**: business users wanting a visualization would require us to build a custom renderer.
+1. I would own the grammar, escaping rules, parser, compatibility, and validation.
+2. I would also need a renderer or a conversion layer if I wanted to inspect the task graph visually.
 
-**Third attempt: Mermaid**
+**The current implementation uses Mermaid**:
 
 ```mermaid
 flowchart LR
     A["status: done<br/>summary: Pull slow SQL from last 7 days"] --> B["status: doing<br/>summary: Identify anomalous SQL templates"]
 ```
 
-Advantages:
+Why it fits this implementation:
 
-1. **Token-friendly**: Mermaid syntax is extremely terse — node ID `001-N1` expresses semantics in 4 characters.
-2. **LLMs have seen massive amounts of Mermaid**: Mermaid appears frequently in training data, so model generation stability is far higher than for custom DSL.
-3. **Directly renderable**: during debugging, copy-paste into the in-house wiki / Confluence and you see the topology immediately.
-4. **Metadata embedded in comments**: `%%{ ... }%%` can stuff JSON metadata without polluting the graph render.
-5. **Regex directly extracts node_id**: `(\d{3}-N\d+)` — one line of regex pulls out all node IDs for drilling down into jsonl.
+1. **Compact topology**: node and edge syntax expresses the task structure without repeating a large object schema.
+2. **Model familiarity**: many models understand Mermaid, although I still need validation and fallback behavior.
+3. **Standard rendering**: the same artifact can be rendered by a Mermaid-compatible viewer when I need to inspect the graph.
+4. **Recoverable IDs**: the implementation can extract IDs such as `001-N1` and use them to drill down through the Offload entry to `result_ref`.
 
-⚠️ **Don't answer "I personally think Mermaid is intuitive."** You must give quantitative comparisons: JSON averages 4–5K tokens; Mermaid averages 800–1500 tokens. Same semantics, ~70% token savings.
+⚠️ I would not quote a Mermaid token-saving percentage without a same-content, same-tokenizer benchmark. The defensible reasons are compact topology, human readability, renderability, and recoverable node IDs.
 
 **Key drilling points:**
-- "Why encode node_id as `\d{3}-N\d+`?": the first 3 digits are the mmd file sequence number (one session can have multiple task canvases); the suffix is the node ordinal. This keeps node_ids from colliding even across mmd files.
+- "Why encode node_id as `\d{3}-N\d+`?": the first three digits come from the MMD sequence and the suffix is the node ordinal. That separates canvases inside the same Offload data scope; it is not a globally unique identifier.
 - "What if the LLM writes bad Mermaid syntax?": the L2 backend does `replaceBlocks` incremental patching; if patching fails, it falls back to rewriting `mmdContent` in full; if that also fails, it keeps the old mmd and marks it `node_id="wait"` for the next retry round.
 
 ---
 
-## 1.6 Bank-specific: compliance, audit, PII redaction
+## 1.6 Regulated-production scenario: compliance, audit, and PII
 
-**Typical question:** Building such a system in a bank, what special compliance measures were needed?
+**Typical question:** If this in-house system handles regulated data, what compliance controls would you need?
 
 **Interview answer:**
 
-This is the biggest difference between a bank project and an internet product. I spent a full sprint on it:
+The current source performs targeted cleaning: it removes gateway metadata, base64/media payloads, injected-memory blocks, and sensitive tokens from selected error paths. That is not a complete bank-grade PII, tenancy, or regulatory-audit implementation, and I would not claim a `PiiScrubber`, Luhn pipeline, KYC lexicon, private audit platform, or measured false-positive rate without source and deployment evidence.
 
-**First, PII redaction pipeline**
+If I were designing this for regulated production, I would start with data classification and purpose limitation. Raw conversations, derived memories, embeddings, prompts, responses, and logs need separate retention and access policies. I would use approved model endpoints, encryption, secret management, least privilege, tenant/user filtering at every read and write, deletion/export workflows, immutable security audit events, and redaction tested against representative sensitive-data fixtures.
 
-Before anything is written to L0 / L1, text passes through `PiiScrubber`:
-- National ID: `\d{17}[\dXx]` → `***[masked-id-XXXX]***`, keeping the last 4 digits for manual verification.
-- Phone number: `1[3-9]\d{9}` → `***-***-XXXX`.
-- Bank card: 12–19 consecutive digits + Luhn check passes → `****[masked-card-XXXX]****`.
-- Customer name: matched against in-house KYC lexicon → `[CUSTOMER-{hash first 6 chars}]`; identical hash means same customer.
-- Email, address: standard regex + replacement.
-
-**Key engineering details:**
-
-1. **Luhn check prevents false positives**: earlier we used pure length matching, which redacted order numbers and transaction IDs as card numbers, disrupting business investigation. Adding Luhn dropped the false-positive rate from 8% to <0.3%.
-2. **Hash consistency**: the same customer is redacted to the same token across different conversations, so the memory system can still internally "recognize" it's the same person for persona aggregation — but the original text is gone once persisted.
-3. **Reversible vs irreversible**: customer names use hash (irreversible); ID numbers retain the last 4 digits (partially reversible, for manual verification). This was settled after back-and-forth with business and compliance.
-
-**Second, audit logging**
-
-Every LLM call / memory read-write lands in the in-house audit platform:
-
-```
-{
-  "trace_id": "tr-20240312-...",
-  "tenant": "customer-agent",
-  "user_id_hash": "u-abc123",
-  "operation": "memory_recall",
-  "query_hash": "q-...",
-  "results_count": 5,
-  "model": "internal-llm-7b",
-  "input_tokens": 234,
-  "output_tokens": 0,
-  "latency_ms": 87,
-  "timestamp": "..."
-}
-```
-
-Note that **query and user_id are both hashed** — the audit itself must not store sensitive information. When traceability is needed, the audit platform performs a reverse lookup (with an approval workflow).
-
-**Third, data isolation**
-
-L0/L1/L2/L3 data for different business channels (customer service / R&D / ops / risk control) is **physically isolated** — each tenant gets an independent PG schema + independent vector index. Reasons:
-- Customer-service Agent's customer preferences must not leak into the R&D Agent.
-- The risk-control Agent's match rules are more sensitive; an independent schema enables stricter ACLs.
-
-`MemoryCore` enforces tenant scope at every request entry point; downstream store calls must carry `tenantId` — if absent, it throws. This consistent enforcement is required by compliance audit.
-
-**Fourth, data egress**
-
-All LLM calls go through the **in-house AI-compute gateway** (a unified gateway that performs prompt auditing + content filtering). Any attempt to directly call external LLM APIs is blocked by the egress firewall. Embedding as well — uses the in-house self-deployed BGE-M3.
-
-⚠️ **Drilling points**:
-
-- "Does PII redaction hurt recall?": it loses a small amount of precision (hashed tokens don't participate in semantic matching), so **redaction happens before write but preserves 5 characters of surrounding context**, allowing the vector to still learn the surrounding semantics.
-- "What happens when the redaction rule version changes?": each memory record carries `pii_rules_version`; after a rule upgrade, data from the old version is flagged stale, and the next access triggers re-redaction (async job).
+The hard boundary is that compliance policy comes from the organization's legal and security owners. Technical controls implement that policy; this repository alone cannot prove a bank retention period, mandatory gateway, egress firewall, or regulator-approved workflow.
 
 ---
 
@@ -315,56 +207,48 @@ All LLM calls go through the **in-house AI-compute gateway** (a unified gateway 
 
 **Interview answer:**
 
-We built a **three-tier evaluation set** — it's not a number you can explain in one sentence:
+The stored reports establish two benchmark results, and I keep their scopes separate:
 
-**Tier 1: Internal conversation evaluation set (Long-term memory)**
+**PersonaMem benchmark (long-term memory)**
 
-- Source: historical customer-service Agent conversations, **PII-redacted + manually annotated by the business QA team**. 5 relationship manager profiles × 50 held-out preference questions each = 250 test cases.
-- What is measured: after injecting historical multi-turn conversations (200–500 turns), ask held-out questions, e.g., "What type of work orders does this relationship manager commonly handle?", "What is their preferred speaking style?"
-- Scoring: business QA team pre-defined gold answers + LLM-as-judge (in-house LLM) dual adjudication; disagreements resolved manually.
-- Baseline 48% = the in-house Agent's built-in rolling buffer + global summary; after integrating the plugin, 76%.
+- Recorded final-answer accuracy: 48% baseline and 76% for the configured memory system.
+- The result is specific to the stored model, plugin, dataset, and scorer configuration.
+- This draft does not independently establish the dataset size, a business-data annotation workflow, or a different baseline architecture.
 
-**Tier 2: Long-task token stress test (Short-term offload)**
+**WideSearch benchmark (long-task offload)**
 
-- Source: 100 real production work-order traces from the R&D-productivity Agent, **replayed for execution**.
-- What is measured: the same work order run twice — ① bare Agent without memory, ② with memory mid-tier enabled — comparing total token consumption + task pass rate (task pass = work order correctly classified + correct processing action).
-- Results: tokens -61.38% (baseline 22.1M / after integration 8.5M), task pass rate +51.52%.
+- Recorded pass rate: 33% to 50%, a 51.52% relative lift.
+- Recorded token usage: 221.31M to 85.64M, a 61.38% reduction.
+- These are benchmark totals, not proof of a particular number of real work-order traces or an online traffic average.
 
-**Tier 3: Business-side online A/B**
-
-- Customer-service Agent canary: 10% traffic with memory mid-tier vs 90% baseline, ran for 7 days.
-- Metrics:
-  - Customer-service NPS (satisfaction survey): +8.3 points.
-  - "Second-inquiry rate" (same relationship manager asks the same question within 24h): -34%.
-  - Agent single-turn LLM input tokens: -43% (online lower than offline because online conversations are shorter, so compression gains are smaller).
+There is no source-backed online A/B result in this draft. NPS, second-inquiry rate, online token reduction, canary percentage, and run duration require dashboards or experiment records before they can be quoted.
 
 **Three key evaluation principles:**
 
-**First, "long-session accumulation," not isolated tasks.**
-Isolated tasks look good on paper, but the real Agent pain point is **token accumulation within the same session**. We deliberately used long-horizon sessions to simulate real production pressure.
+**First, preserve the benchmark workload.**
+Long-session results depend on the exact task sequence, context window, model, tool outputs, and plugin version. Report those with the score.
 
-**Second, the comparison group must be reproducible.**
-Every evaluation ran twice: once with the bare Agent without the memory mid-tier (baseline), once with it integrated. All other parameters (model, temperature, prompt template, tool set) kept strictly identical.
+**Second, keep the comparison reproducible.**
+Hold model, temperature, prompt, tools, dataset, retry policy, and cache policy constant; repeat runs and report variance where the benchmark allows it.
 
-**Third, "task pass rate" is judged by the business side.**
-It's not us on the algorithm side declaring "pass." The business QA team uses a pre-defined rubric to judge. This avoids the "grading our own homework" problem.
+**Third, define the scorer.**
+Task pass rate and answer accuracy are meaningless without the rubric, judge, and failure policy. Use the scorer recorded by the benchmark; do not invent a business-QA process.
 
-⚠️ **Never say "we hand-picked some questions" or "I judged them myself."** Always say **business side / QA team + in-house LLM judge dual adjudication**, and be able to explain clearly how that judge works.
+⚠️ Never claim dual adjudication, human calibration, or an internal judge unless the evaluation artifact proves it.
 
 **Key drilling points:**
-- "How do you ensure the LLM judge isn't biased?": first calibrated on 100 samples to align with human judgment at kappa > 0.8, then scaled up with the LLM judge.
-- "How was Token -61% calculated?": (baseline_total - with_memory_total) / baseline_total; absolute numbers 22.1M → 8.5M.
-- "Why is the online improvement smaller than offline?": real business conversations are shorter on average than the benchmark, so the compression headroom is smaller; but the stability improvement / cost savings are more valuable.
+- "How was Token -61.38% calculated?": `(221.31M - 85.64M) / 221.31M`, for the recorded WideSearch configuration.
+- "Can you generalize it?": no. Change the model, task sequence, context window, or baseline and the result can change.
 
 ---
 
 ## 2.2 How is the offline and online metrics framework structured?
 
-**Typical question:** After going live, how do you monitor online metrics? How do they relate to offline metrics?
+**Typical question:** If this were operated as a production service, which online metrics would you add, and how would they relate to offline benchmarks?
 
 **Interview answer:**
 
-I structured metrics into a three-tier pyramid:
+I would structure metrics into a three-tier pyramid:
 
 ```
               ┌──────────────────────────┐
@@ -384,22 +268,17 @@ I structured metrics into a three-tier pyramid:
 
 **Online evaluation** primarily looks at L1+L2, since there's no complete ground truth online. Specific metrics:
 
-| Type | Metric | Threshold / SLO | What anomaly means |
-|---|---|---|---|
-| Latency | recall p95 | < 500ms | Recall blocking user; needs degradation or timeout |
-| Latency | capture p95 | < 200ms | Affects session_end response time |
-| Latency | L1 extract duration | < 30s | Extraction too slow → model stalling or prompt too long |
-| Cost | per-turn billable input token | diff vs last week < 10% | Too much growth → recall overload / cache busted |
-| Cost | prompt cache hit rate | > 60% | Sudden drop → context unstable |
-| Behavioral | `memory_search` tool invocation rate | < 10% / turn | High → recall quality insufficient; agent re-searching itself |
-| Health | L1 failure rate | < 1% | High → model JSON output format broken |
-| Health | scheduler queue size | < 50 | High → LLM can't keep up with capture rate |
-| Compliance | PII leak rate | = 0 | Sampled audit + keyword scanning |
-| Compliance | audit log completeness | 100% | Any LLM call without an audit record = P0 |
+| Type | Metric | Why it matters |
+|---|---|---|
+| Latency | recall, capture, and extraction p50/p95/p99 | Separates foreground blocking from background work |
+| Cost | input/output/cached tokens by model and prompt version | Detects context growth, retries, and cache instability |
+| Behavior | correction, re-search, and task completion | Gives proxy signals when online ground truth is absent |
+| Health | parse failures, queue age, retries, fallback rate | Shows pipeline pressure and degradation |
+| Safety | unsupported memory, cross-tenant access, deletion/audit failures | Validates trust boundaries |
 
-**Integration with in-house monitoring**: all the above metrics go through in-house Prometheus + Grafana; L1 + compliance alerts go straight to PagerDuty on-call.
+Thresholds must be derived from an agreed SLO and measured baseline. The repository does not prove a particular monitoring stack or alert threshold.
 
-⚠️ **Here's a minefield an interviewer might dig into**: if asked "how do you know recall is accurate" — there's no complete ground truth online, so you can't just answer "recall accuracy 95%." **Correct answer**: use the **Agent's re-search rate as a proxy metric.** The Agent is told in its prompt "if memory is insufficient, you may call `memory_search`," so how often it actually calls it inversely reflects recall quality. If the invocation rate exceeds 10%, it means recall is inadequate.
+Re-search rate can be one proxy, but it is not inverse recall accuracy: users may search for other reasons, and an Agent may fail without searching. Combine it with sampled judgments, corrections, retrieval traces, and task outcomes; derive any threshold from a baseline.
 
 ---
 
@@ -409,29 +288,26 @@ I structured metrics into a three-tier pyramid:
 
 **Interview answer:**
 
-This is a real pitfall; I remember it vividly.
+This is a source-visible contamination risk, not a verified runtime or benchmark event. Internal LLM sessions use recognizable session keys, and hook entry points need to exclude them so memory processing does not capture its own generated traffic.
 
-**Symptom**: while running the R&D-productivity Agent benchmark, we found the token consumption numbers didn't add up. The same work order run twice — the second run consumed 30% more than the first. In theory they should be perfectly identical.
+**How I would validate it**:
 
-**Investigation**:
+1. Tag every host and internal model call with a traceable session identity.
+2. Compare captured sessions with the internal-session naming pattern.
+3. Verify that auto-capture, auto-recall, and offload hooks short-circuit internal Memory sessions.
+4. Add a regression test showing internal extraction cannot create another captured user turn.
 
-1. Added trace_id to log every LLM call's source.
-2. Discovered one category of calls whose sessionKey looked like: `memory-l1-extract-session-1709876543210`.
-3. This was the internal session created by L1 extraction itself (CleanContextRunner requires a sessionKey).
-4. Found that this internal session was also caught by hooks — its tool results (even though L1 extraction itself uses no tools) also entered the offload pipeline.
-5. Worse: the internal session triggered a new capture → new L1 extraction → yet another internal session... It wouldn't loop infinitely (since L1 has no user message), but each time it re-executed an L0 write.
-
-**Fix**: defined `INTERNAL_SESSION_RE = /memory-.*-session-\d+/`; every hook entry point first checks `isInternalMemorySession(sessionKey)` — if it matches, return immediately. Added this guard in four places: `auto-capture`, `auto-recall`, `offload before_prompt_build`, `offload after_tool_call`.
+The source uses an internal-session classifier and guards hook paths. The exact naming pattern and covered entry points should be quoted from the current source version.
 
 **What this case taught me**:
 
-1. **Every LLM call must carry sessionKey + tenant** — no anonymous invocations. Otherwise you can't trace ownership during online investigation.
+1. **Every model call needs a traceable identity** so internal and external work can be separated.
 2. **Every system injected with hooks must have an "internal vs external" classification tag.** Otherwise the system's own LLM calls contaminate its own metrics and data.
-3. **Before evaluation, you must first run a "baseline self-consistency test"**: the same session run twice should produce identical token counts; a discrepancy means there's a non-deterministic side effect.
+3. **Before evaluation, run a contamination test**. Two runs need not have identical token counts because models and retries can be nondeterministic, but unexpected extra internal calls must be explainable in the trace.
 
 ```mermaid
 flowchart LR
-    A["session_end"] --> B["auto-capture"]
+    A["turn committed / agent_end"] --> B["auto-capture"]
     B --> C["L1 extract<br/>(sessionKey=memory-...)"]
     C --> D["LLM call<br/>(internal session)"]
     D -. "if not filtered" .-> E["hooks trigger again"]
@@ -440,19 +316,19 @@ flowchart LR
     style E fill:#fdd,stroke:#f00
 ```
 
-⚠️ **Drilling point: "why not use an in-process variable to mark whether it's an internal call?"**: won't work. The LLM call is launched from CleanContextRunner as a child process or HTTP call — process-level markers can't cross that boundary. The session-key prefix is the only reliable transmission mechanism.
+⚠️ An in-process flag is insufficient when work can cross process or HTTP boundaries. A propagated, validated context field is safer than assuming the session-key prefix is the only possible mechanism.
 
 ---
 
-# Part 3: Productionization
+# Part 3: Productionization Scenarios and Source-Visible Reliability Controls
 
-## 3.1 Canary rollout strategy: off by default + three-tier config + business-channel batching
+## 3.1 Scenario: Canary rollout using safe defaults and staged exposure
 
 **Typical question:** For a heavyweight memory system like this, how do you control risk during rollout?
 
 **Interview answer:**
 
-In-house system launches must be very cautious. We implemented **two-dimensional canary**:
+The source proves safe configuration defaults, not a completed four-channel canary. If I were rolling this out, I would combine feature exposure with workload exposure:
 
 ### Dimension 1: Feature canary (within the same Agent)
 
@@ -460,11 +336,7 @@ In-house system launches must be very cautious. We implemented **two-dimensional
 ```jsonc
 { "memory": { "enabled": true } }
 ```
-Only long-term memory is on; **short-term offload is off by default.** This tier guarantees:
-- No modification of any existing behavior in the Agent's main flow.
-- All writes are fire-and-forget async; `session_end` return time is nearly unchanged.
-- Recall has a 5s timeout (`recall.timeoutMs`); even if the backend crashes, it doesn't block the user.
-- Even if the mid-tier goes fully down, the Agent remains fully functional.
+Short-term offload is off by default. This reduces blast radius, but does not guarantee zero behavioral or latency impact. Recall has a bounded timeout and capability-based fallbacks; every host still needs failure-path tests.
 
 **Tier 2: Opt-in offload**
 ```jsonc
@@ -478,7 +350,7 @@ Enables short-term context compression. This tier requires the business side to 
 - Register the mid-tier in the Agent framework's `slots.contextEngine`.
 - Run a patch script once to patch the Agent framework (so that after-tool-call events can be taken over by the mid-tier).
 
-Why make the business side actively patch? Because the patch modifies the hook registration order in the Agent's main process — **it is intrusive.** We can't silently modify the business side's framework. Having them run the script themselves means they know what they're doing and can roll back if something goes wrong.
+Because context-engine integration changes hook behavior, it should be explicit, versioned, tested, and reversible. I would not claim a specific partner-run patch process unless the deployment record proves it.
 
 **Tier 3: Advanced tuning**
 ```jsonc
@@ -488,45 +360,42 @@ Why make the business side actively patch? Because the patch modifies the hook r
   "offload": { "mildOffloadRatio": 0.4, "aggressiveCompressRatio": 0.8 }
 }
 ```
-Exposed for ops colleagues to tune thresholds. The three tiers cover 90% / 9% / 1% of adopters respectively.
+Advanced thresholds are configuration, not adoption percentages. Changes should be validated against a benchmark before rollout.
 
-### Dimension 2: Business-channel canary (across Agents)
+### Dimension 2: Workload canary
 
-We agreed with the business side on a 4-phase canary:
+I would use phases like these; they are a design template, not rollout history:
 
-| Phase | Channel | Traffic | Duration | Exit Criteria |
-|---|---|---|---|---|
-| 0 | Internal R&D-productivity Agent (dogfooding) | 100% | 2 weeks | 0 P1+ incidents |
-| 1 | Customer-service Agent (shadow mode) | 100% shadow | 2 weeks | Recall accuracy no regression; latency within SLO |
-| 2 | Customer-service Agent (real traffic) | 10% → 50% → 100% | 4 weeks | NPS, second-inquiry rate meet expectations |
-| 3 | Risk-control Agent (most sensitive) | 10% → 50% → 100% | 4 weeks | Risk-control rule hits show no regression |
+| Phase | Exposure | Exit Evidence |
+|---|---|---|
+| 0 | Offline replay on a fixed dataset | No critical regression in quality, cost, latency, or safety |
+| 1 | Shadow execution with no answer impact | Trace comparison and fallback behavior meet the agreed SLO |
+| 2 | Small, reversible low-risk cohort | Guardrails, support process, and rollback are verified |
+| 3 | Gradual expansion by risk tier | Each cohort meets predeclared quality and operational gates |
 
-**Shadow mode** is crucial: after the customer-service Agent integrates, the memory system runs online but **its output does not affect actual Agent responses** — the Agent still uses the old buffer; the memory system's answers only land in logs for diff comparison. This lets us validate the algorithm without affecting business.
+In a shadow design, the candidate memory result is recorded for comparison but does not affect the answer. Sensitive content still needs access control and retention limits even when it is “only in logs.”
 
-⚠️ **An interviewer might ask: "why not use feature flags for online canary?"**: we did. The second dimension is based on the in-house feature-flag platform (bucketing by user_id hash). The first dimension's "tiers" are config-default canary for different business-side adopters. The two dimensions are orthogonal.
+Feature flags can control cohort exposure, while configuration controls which capabilities are enabled. I would use both, but I do not claim a specific in-house flag platform from the repository.
 
 ---
 
-## 3.2 Real post-launch issue 1: prompt cache busted
+## 3.2 Scenario: diagnosing prompt-cache instability
 
-**Typical question:** After integration, the business side reported cost increases — how did you investigate?
+**Typical question:** If cost increased after dynamic recall was enabled, how would you investigate?
 
 **Interview answer:**
 
-This was the biggest incident in the first week of launch. I'll walk through it in detail.
+This is a diagnostic drill based on a real source-level design concern, not a verified launch event.
 
-**Symptom**:
-- The customer-service Agent team reported "after integrating the plugin, per-turn input tokens are 30% more expensive than before."
-- But `usage.input_tokens` returned by the in-house AI-compute gateway didn't seem much different.
-- Business traffic, user question volume, tool-call count — none had changed significantly.
+**Observed signal to validate**: billable input cost changes while traffic, model, prompt length, retries, and tool volume appear stable.
 
 **Investigation approach**:
 
-1. First, ruled out traffic, question length, and tool-call count changes (conclusion: all normal).
-2. Second, looked at cache metrics: `usage.cached_tokens` had dropped significantly, from an average 80% hit rate to 30%.
-3. Third, compared adjacent-turn prompt diffs and found that the system prompt had a few lines changing every turn — it was the L1 recalled content inside `<relevant-memories>`. Each turn's query was different, so the recall was different.
-4. Fourth, understood: **we put L1 dynamic memories in `appendSystemContext` (at the end of the system prompt), causing the entire system prompt to change every turn, invalidating the entire prompt cache.**
-5. Cache invalidated → the previously cached system prompt (containing persona, scene navigation, tools schema, ~3000 tokens) became billable input every turn → an extra 3000 × ~0.3× unit price ≈ 30% cost per turn.
+1. Control for traffic, model, prompt version, question length, tool volume, and retries.
+2. Inspect provider-reported cached tokens if the provider exposes them.
+3. Diff adjacent prompt prefixes and identify changing blocks.
+4. Form the hypothesis that dynamic L1 recall inside a reusable prefix reduces cache reuse.
+5. Test that hypothesis with a fixed benchmark; do not infer a percentage cost impact from token count alone.
 
 **Fix**: split recall into two categories:
 
@@ -540,93 +409,80 @@ Dynamic context (prependContext) → prepended to user prompt, changes per turn
   - Current-turn L1 relevant memories
 ```
 
-This fix is in the code at `auto-recall.ts:186-218` — there are several lines of comments specifically explaining the reason for this split.
+The source separates stable and dynamic memory injection. Exact line numbers can move, so cite the current function rather than memorizing a stale range.
 
-**After fix**: cache hit rate returned from 30% to 78%; per-turn cost returned to baseline.
+Whether the split improves cache hit rate and cost for a provider must be measured. The repository does not prove a particular hit-rate recovery or a return-to-baseline production result.
 
-**Lessons from this incident**:
+**Design lessons**:
 
-1. **An Agent system's cost depends not only on context length, but on context "stability."** The same 5000 tokens — if stable and cacheable, it's cheap; if changing every turn, it's 5–10× more expensive.
+1. **An Agent system's cost depends not only on context length, but also on context stability.** A stable prefix may be cacheable, while a changing prefix may not be. The billing difference is provider- and model-specific, so I would read cache-usage telemetry instead of quoting a multiplier.
 2. **For any content injected into the prompt, first think about whether it's stable or dynamic**, and physically isolate them.
-3. **Cache hit rate should be a tier-1 online metric** — you can't just look at the input_tokens total.
-4. **The in-house AI-compute gateway must expose the cached_tokens field** — when reporting token billing data, this field determines real billing vs discounted billing and must be observable. We later pushed the AI-compute gateway team to add this field to monitoring.
+3. **Provider cache usage is useful telemetry** when available, but it must be interpreted with the provider's documented semantics.
 
 ```mermaid
 flowchart LR
-    A["Cost ↑30% after integration"] --> B{"input_tokens<br/>itself went up?"}
-    B -- not much --> C["check cached_tokens"]
-    C --> D["cached hit 80% → 30%"]
-    D --> E["compare adjacent prompt diffs"]
-    E --> F["found L1 recall contaminating system prompt"]
-    F --> G["split stable/dynamic injection"]
-    G --> H["hit rate back to 78%<br/>cost back to baseline"]
+    A["Observed Cost Change"] --> B["Control Traffic / Model / Prompt Shape"]
+    B --> C["Inspect Cache Telemetry"]
+    C --> D["Compare Adjacent Prompt Prefixes"]
+    D --> E["Form Dynamic-Prefix Hypothesis"]
+    E --> F["Run Controlled Benchmark"]
+    F --> G["Adopt Split Only If Evidence Supports It"]
 ```
 
-⚠️ **An interviewer might drill: "how do you know how prompt cache works?"**: the in-house AI-compute gateway uses the industry-standard **prefix contiguous match** strategy — the system_prompt + first_user_message must be exactly identical for a cache hit. So inserting dynamic content at the end of the system prompt means the entire system prompt segment cannot be cached.
+⚠️ Cache semantics are provider-specific. Use the selected provider's current documentation and usage fields; do not claim a private gateway implementation without evidence.
 
 ---
 
-## 3.3 Real post-launch issue 2: embedding HTTP blocking session_end
+## 3.3 Source-visible risk: embedding work on the foreground path
 
-**Typical question:** What other online issues did you encounter?
+**Typical question:** How would you prevent embedding work from blocking turn-commit capture?
 
 **Interview answer:**
 
-The second interesting case was **business users feeling the Agent got slower after embedding was enabled.**
+The source exposes deferred-embedding capability and background-task draining. That supports an engineering answer, not a claim about a measured user-facing incident.
 
-**Symptom**:
-- After integrating the mid-tier + configuring the in-house BGE-M3 embedding, the business side felt an extra 2–3s on every session_end.
-- This latency was reflected in the user-perceived "wait time," not in background async.
-- But `before_prompt_build` recall latency was normal (< 200ms).
-- The problem was in the `session_end` phase.
+If turn-commit capture becomes slow, I would time JSONL persistence, metadata/FTS writes, embedding, and vector writes separately.
 
 **Investigation**:
 
-1. Added fine-grained timing: found the L0 vector indexing phase inside `auto-capture` was taking 2–3s.
-2. Looked at the code: `auto-capture`, upon receiving conversation messages, was **synchronously** calling `embeddingService.embed(msg.content)` to generate vectors for each message, then writing to PG.
-3. One user message + one assistant message = two embedding HTTP calls; each 1–1.5s (in-house BGE-M3 latency is somewhat high when GPU resources are tight); two calls total 2–3s.
-4. **This latency sits on the session_end synchronous path, so the user feels it.**
+The hypothesis to test is whether a remote embedding call sits on the foreground path. The size of any latency impact requires telemetry and is not a source fact.
 
 **Fix**: split into two paths:
 
-**Path A (PG, supports deferred embedding)**:
-- Synchronous phase only writes metadata + FTS (< 10ms).
+**Path A (a backend that supports deferred embedding)**:
+- Synchronous phase writes the durable record and keyword index.
 - Embedding runs in background fire-and-forget; when done, update the vector column.
-- session_end is not blocked.
+- The turn-commit capture path does not wait for that embedding call.
 
-**Path B (VDB, does not support deferred)**:
-- VDB upsert must carry the vector in one shot, so embedding must be synchronous.
-- But VDB typically has built-in server-side embedding, so we can have EmbeddingService return empty → let the VDB server-side embed.
+**Path B (a backend that requires a vector or embeds server-side)**:
+- Use the backend capability explicitly and keep fallback behavior observable.
 
 In code, this is differentiated via the `vectorStore.supportsDeferredEmbedding` capability flag.
 
 **Another pitfall in implementation details**:
 Background embedding is fire-and-forget, but **if the process shuts down while an embedding is still in flight, and the DB is already closed, the write will explode with "database is not open."**
 
-Fix:
-- MemoryCore maintains a `bgTasks: Set<Promise<void>>`.
+Current safeguard:
+- `TdaiCore` maintains a `bgTasks: Set<Promise<void>>`.
 - Every background embedding promise registers into it; on completion, finally removes itself.
-- `destroy()` first awaits all bgTasks (5s timeout), then closes the DB connection pool.
+- `destroy()` waits for those tasks with a bounded timeout before closing the store and embedding service.
 
 ⚠️ **Interviewer drilling minefields**:
 
-- "Why not batch embeddings?": because the same turn only has 2–4 messages; batch savings are small, but it adds the risk of "any single failure fails the entire batch."
-- "During deferred embedding, what if the user searches for this message?": they won't find it, but FTS is still there, so keyword hits still work. The "incomplete recall" visible to the user is considered acceptable because the latency is far less tolerable.
-- "How did you address BGE-M3 slowness at the root?": later pushed the in-house GPU team to add a batch dispatcher + Triton optimization to BGE-M3; p50 dropped from 1.2s to 200ms.
+- "Why not batch embeddings?": measure batch size, queue delay, provider throughput, and partial-failure semantics.
+- "During deferred embedding, what if the user searches immediately?": keyword retrieval may still find the record, while vector recall is temporarily incomplete; the product must decide whether that consistency window is acceptable.
 
 ---
 
-## 3.4 Real post-launch issue 3: scheduler startup race
+## 3.4 Source-commented concurrency defect: scheduler startup race
 
 **Typical question:** Any concurrency bugs you encountered?
 
 **Interview answer:**
 
-In mid-tier mode, we hit a very subtle race condition:
+I would be careful with the wording here. The source comment documents the race mechanism and the current safeguard; it does not prove that I observed it in live operation.
 
-**Symptom**: intermittently, the first capture's conversation_count would be overwritten to 0. That is, after the user's first utterance, the scheduler state was reset and the warm-up threshold regressed to 1.
-
-**Root cause**: `ensureSchedulerStarted` was originally written like this:
+**The risky pattern** would look like this:
 
 ```typescript
 private started = false;
@@ -638,18 +494,15 @@ async ensureSchedulerStarted() {
 }
 ```
 
-The mid-tier is an HTTP service shared by multiple in-house Agents with high concurrency. Two capture requests arrived almost simultaneously:
+If two turn-commit calls interleave during startup, this can happen:
 
 ```
-Time 0:   request A enters → sees started=false → sets started=true → await checkpoint.read()
-Time 1ms: request B enters → sees started=true → proceeds directly with capture flow
-                                 → notifyConversation → sessionStates.set(key, {count: 1})
-Time 50ms: request A's checkpoint.read() completes
-                                 → scheduler.start(...) → sessionStates.set(key, restoredState{count: 0})
-                                                          ↑ overwrites B's written state!
+T0: request A sets started=true and waits for checkpoint.read()
+T1: request B sees started=true and updates scheduler state
+T2: request A restores checkpoint state over the state written by B
 ```
 
-**Fix**: use a promise gate instead of a boolean flag:
+**Current implementation:** `ensureSchedulerStarted` uses a promise gate:
 
 ```typescript
 private schedulerStartPromise?: Promise<void>;
@@ -664,14 +517,13 @@ private ensureSchedulerStarted() {
 }
 ```
 
-Every concurrent caller awaits the same promise; only when it truly completes does capture proceed. There's a large comment block in the code explaining this race — it's a scar from a lesson learned in production.
+Every concurrent caller awaits the same promise; only when initialization completes does capture proceed. The comment supports the defect mechanism, not a claim about where or how often it occurred.
 
-**Summary of this case**:
+**What I would say in the interview:**
 
 1. **Any "set flag first → do async work later" pattern is a race trap.** Even in Node.js single-threaded, it's unsafe because `await` yields the event loop.
 2. **A promise gate is the async version of a mutex**: the first call starts the work; subsequent calls await the same promise.
-3. **After fixing, you need a concurrency test**: we specifically wrote a P0 test case `concurrent capture during scheduler start` targeting exactly this scenario.
-4. **In-house microservices routinely have high concurrency** — unlike a single-machine plugin, the mid-tier on startup must accept requests from all Agents simultaneously; race conditions during startup are far more likely to surface than on a single machine.
+3. **The test I require** starts two calls around a delayed checkpoint read and verifies that both await one initialization and that restored state cannot overwrite a later update. I would not claim a named test exists unless it is present in the test suite.
 
 ```mermaid
 sequenceDiagram
@@ -696,20 +548,17 @@ sequenceDiagram
 
 ---
 
-## 3.5 Real post-launch issue 4: handleSessionEnd clearing the wrong session
+## 3.5 Source-commented scope defect: session end versus process shutdown
 
-**Typical question:** Under multi-tenant concurrency, what pitfalls have you dealt with?
+**Typical question:** What is the difference between ending one session and shutting down the whole process?
 
 **Interview answer:**
 
-This was the most severe bug in the project — it triggered a P0 fix.
+The source comment makes this semantic boundary explicit. It does not prove a live occurrence, affected-user count, or multi-tenant deployment.
 
-**Symptom**:
-- The customer-service Agent was under high concurrency during peak hours. Relationship manager A's session ended, triggering `/session/end`.
-- Afterwards, relationship manager B's current session suddenly lost the messages in its buffer — what they just said wasn't captured into L0.
-- First suspicion was an IO error, but the L0 file on disk was fine; jsonl was intact.
+**Defect mode**: if one session's end handler destroys a process-global scheduler, other sessions lose in-memory timers and pending work.
 
-**Investigation**: ran our own concurrency test cases and discovered the historical code's `handleSessionEnd` was written like this:
+The source comment says an earlier implementation conflated the two operations. Conceptually, the risky version was:
 
 ```typescript
 async handleSessionEnd(sessionKey) {
@@ -718,13 +567,9 @@ async handleSessionEnd(sessionKey) {
 }
 ```
 
-**This code is completely wrong**:
+The scope is wrong because process shutdown may tear down shared resources, while `on_session_end` or `POST /session/end` should only flush one session. Destroying the scheduler from a session callback can discard other sessions' in-memory timers, buffers, and pending state.
 
-- `service_shutdown` (mid-tier process exiting) should indeed destroy the entire scheduler.
-- But `on_session_end` (a single session ending, process still running) **should only clear that one session's buffer.**
-- The old implementation destroyed the entire scheduler → all other running sessions' in-memory buffers / timers / pending states were all lost.
-
-**Fix**: strictly separate these two semantics:
+**Current implementation:** the two semantics are separate:
 
 ```typescript
 async destroy() {
@@ -743,77 +588,35 @@ async handleSessionEnd(sessionKey: string) {
 2. If there are still messages in the buffer, immediately trigger one L1 processing pass (trigger="flush").
 3. Await the L1 queue to drain, but **do not touch other sessions**.
 
-There's a long comment above this method in the code that spells out this semantic boundary with two hierarchy warnings. Mentioning this in an interview is solid — "I leave warnings in the code for bugs I've fixed, so others don't step in them again."
-
-**The additional impact of this bug in the banking context**:
-
-- Customer-service conversation messages lost → that customer inquiry wasn't captured by the memory system → the next time the relationship manager asks the same question, the system doesn't remember → NPS suffers.
-- Because it was intermittent (only surfaced under concurrency), it took two weeks after launch to discover; during that time ~3000 conversations were affected. **We did data remediation afterwards** — pulled the original conversations for all affected sessions from the in-house audit platform and re-ran the capture pipeline.
+The code comment spells out the invariant. In an interview, I would explain the current boundary and the test I would write, without turning the comment into a personal incident story.
 
 ⚠️ **This case also yielded a deeper lesson**:
 
-> **Any interface with a verb like "End" / "Stop" / "Close" — first determine whether it's at the process-level or session-level / tenant-level.** These two tiers of RAII cannot share an implementation.
+> **Whenever an API says "end," "stop," or "close," I first ask what the scope is: one session or the whole process. Those lifecycles should not share one teardown implementation.**
 
 ---
 
 ## 3.6 Data retention and cleanup strategy
 
-**Typical question:** If all L0 raw text is retained, won't the disk fill up? Banks also have regulatory data-retention requirements.
+**Typical question:** If all L0 raw text is retained, won't the disk fill up? How would you handle regulated retention requirements?
 
 **Interview answer:**
 
-This is a particularly important topic in the banking context. We implemented three tiers of cleanup + one **regulation-alignment strategy**:
+The current implementation has configurable L0/L1 retention behavior, cleanup guardrails, Session GC, and separate offload artifacts. It does not prove seven-year/three-year/one-year bank retention rules, a `deleteByCustomerId` approval workflow, or the previously listed scheduler timings.
 
-**Regulation tier: in-house data governance requirements**
+For a regulated deployment, retention must be defined per data class and legal purpose. Raw evidence, derived memory, embeddings, Tool Results, traces, and backups may need different schedules. Deletion must cover primary records, derived indices, cached copies, and provenance while preserving only legally required audit evidence. Exact periods come from policy owners, not from an interview answer.
 
-Bank data is generally classified as:
-
-- Raw customer conversation text (containing PII): retained 7 years (business regulatory requirement).
-- Extracted preferences / profiles: retained 3 years (data governance requirement).
-- Tool logs / Mermaid canvas: retained 1 year (ops needs).
-
-Note these three retention periods run in **opposite directions**: the higher the abstraction tier, the shorter the retention (because it can be regenerated); the lower the evidence tier, the longer the retention (regulatory requirement). This is the inverse of many internet products' "more frequent hot data, longer retention; less frequent cold data, shorter retention."
-
-**Tier 1: Configurable retention**
-
-```jsonc
-{
-  "capture": {
-    "l0RetentionDays": 2555,   // 7 years
-    "l1RetentionDays": 1095,   // 3 years
-    "l2RetentionDays": 365     // 1 year
-  }
-}
-```
-
-**Defaults are set to the strictest in-house regulation.** If a business unit wants shorter retention (e.g., the risk-control Agent wants 90-day cleanup of temporary data), they can lower it, but going below 30 days requires explicitly setting `allowAggressiveCleanup: true`.
-
-**Tier 2: Reclaim scheduler**
-
-`reclaimer.ts` is an independent scheduler:
-- First run 5 minutes after startup (staggered from peak).
-- Thereafter every 24h.
-- Cleans up in one pass: expired jsonl lines, oversized log files, orphan refs/*.md, stale mmds/*.mmd.
-- Uses timer `unref()` so it **doesn't prevent process exit** — an engineering detail; otherwise a mid-tier restart would hang for 24h.
-
-**Tier 3: Scene capacity limit**
-
-`maxScenes` defaults to 15. When the LLM is near this limit, the prompt hints "you may only UPDATE, not CREATE" or "you must first MERGE." This is **capacity control via prompt engineering**, not a hard if.
-
-⚠️ **Interviewer drilling**:
-
-- "Why use prompt control instead of a hard limit?": because a hard limit would make the LLM directly error out or refuse to write; prompt hints let the LLM **autonomously** choose which two most similar scenes to MERGE. The LLM understands semantic similarity better than if/else.
-- "What if a customer exercises their right to data deletion?": the bank has a standard "customer data erasure workflow." Our mid-tier exposes a `deleteByCustomerId(customerId)` interface for this workflow — it reverse-looks up all related L0/L1/L2/L3 data via the `customer_hash` stored during PII redaction, physically deletes them, and writes an audit record. The workflow strictly goes through approvals.
+Scene-count prompts and cleanup thresholds are engineering guardrails, not legal retention controls. Prompt guidance also needs deterministic enforcement when exceeding a hard storage or compliance boundary.
 
 ---
 
 # Part 4: Dev-Time Pitfalls
 
-This section specifically covers pitfalls encountered during development — these cases are the most compelling in an interview because they're real experience no one else can replicate.
+This section covers source-visible implementation pitfalls and design risks. Explain the mechanism and current safeguard; do not present every item as a personally observed event unless an internal record supports it.
 
 ## 4.1 LLM "soft delete": when the LLM has no unlink tool
 
-**Typical question:** SceneExtractor lets the LLM read and write markdown files directly — how do you prevent the LLM from deleting the wrong thing? Banks are extra sensitive to data destruction.
+**Typical question:** SceneExtractor lets the LLM read and write Markdown files directly. How do you keep destructive operations under engine control?
 
 **Interview answer:**
 
@@ -842,17 +645,15 @@ for (const file of allFiles) {
 }
 ```
 
-**Additional measures for the banking context**:
+**Current backup behavior:** before the LLM run, the engine takes a rolling directory backup under `.backup/scene_blocks/`. The default `sceneBackupCount` is 10, so retention is count-based. If the LLM runner throws, the engine attempts to restore the latest directory backup. This path does not currently create a separate soft-delete store or a structured deletion-audit event.
 
-- Before every "soft delete," back up the original file to a separate directory (`scene_blocks/.trash/`), retained 30 days.
-- Deletion actions write an audit record: which LLM call, what trace_id, which file deleted, reason (merge / cleanup / dedup).
-- This way, even if the LLM deletes incorrectly, recovery is possible within 30 days, and the audit trail is traceable.
+There is an important limit: if the LLM run returns successfully but marks the wrong scene as `[DELETED]`, the cleanup phase will remove it. The backup still gives me recovery material, but the current code does not automatically detect that semantic mistake and restore the file.
 
 ⚠️ **Drilling points**:
 
-- "What if the LLM writes `[DELETED]` as the scene content by mistake?": Phase 1 backup protects against this — the entire `scene_blocks/` is backed up before the LLM runs, retaining the last N versions (`sceneBackupCount: 10`). If the LLM run fails, it auto-restores.
+- "What if the LLM writes `[DELETED]` as the scene content by mistake?": the rolling backup gives me a recovery point. Automatic restore only runs when the LLM runner fails; a successful but semantically wrong deletion needs separate detection or manual recovery.
 - "How does the LLM know 'writing [DELETED] equals deletion'?": explicitly stated in the system prompt: "When you want to merge a scene, replace the old file's content with `[DELETED]`."
-- "Why not use version control directly?": the scene file count is large and writes are frequent; the cost of git-ifying is too high. Directory-level backup + trash suffices.
+- "What would you add next?": I would add a deletion manifest, reason, trace identifier, and a review or validation rule for high-value scenes. That is a next-version design, not current behavior.
 
 ---
 
@@ -862,34 +663,17 @@ for (const file of allFiles) {
 
 **Interview answer:**
 
-The most interesting pitfall was filename normalization:
+I would describe this as a source-visible defensive measure, not as a claimed live failure. An LLM-generated scene name can contain spaces or punctuation even when the prompt asks for a clean filename. That can break navigation parsing and make file paths inconsistent across downstream readers.
 
-**Symptom**: after running for a while, we found strange filenames appearing in `scene_blocks/`:
-- `日间办理高频业务.md` (OK)
-- `客户经理'话术'偏好.md` (contains quotes)
-- `工单 / 排查.md` (contains slash → directly breaks directory structure)
-- `Daily SOP.md` (contains spaces)
-
-**Why did this happen?**
-
-The LLM was constrained by the prompt when generating scene_name ("roughly 30–50 characters, single sentence"), but it was **not strictly required to produce valid filenames**. When the LLM used scene_name as a filename, all sorts of odd characters appeared.
-
-**Downstream problems caused by these bad filenames**:
-
-1. The health-checker uses the `\S+\.md` regex to parse navigation refs; spaces immediately cause breakage.
-2. Ops colleagues running `cat scene_blocks/Daily SOP.md` in shell get command errors.
-3. URL-encoded path handling of dirty data — `/` becomes `%2F`, cross-platform path resolution breaks.
-4. **Banking-specific pain**: the audit platform uses file paths as unique ID indices; odd characters cause audit ingestion failures.
-
-**Fix**: added a Phase 5b — `filename-normalizer.ts` — that normalizes all filenames after the LLM finishes and before index sync:
+**Current implementation:** Phase 5b runs `filename-normalizer.ts` after soft-delete cleanup and before index sync:
 
 ```
-"Daily SOP.md"           → "daily-sop.md"
-"客户经理'话术'偏好.md"  → "客户经理话术偏好.md"  (Chinese retained, punctuation removed)
-"工单 / 排查.md"          → "工单-排查.md"           (slash replaced)
+"Daily Rhythm in Shanghai.md" → "Daily-Rhythm-in-Shanghai.md"
+"日常生活 健康管理.md"         → "日常生活-健康管理.md"
+"Coffee (Yirgacheffe).md"     → "Coffee-Yirgacheffe.md"
 ```
 
-And ensures **idempotence** — re-running produces the same result. This way, even if dirty data was left from before, the next round cleans it up.
+The normalizer is idempotent, so running it again keeps the canonical name unchanged. Running it before index sync means `scene_index.json` is rebuilt from the normalized filenames.
 
 ```mermaid
 flowchart LR
@@ -897,13 +681,13 @@ flowchart LR
     B --> C["Phase 5b: normalize"]
     C --> D["Phase 6: sync index"]
     D --> E["scene_index.json<br/>only sees canonical name"]
-    E --> F["audit platform ingestion normal"]
+    E --> F["downstream readers see canonical names"]
 ```
 
 ⚠️ **Drilling points**:
 
-- "Why not constrain the LLM prompt more strictly?": we tried; the LLM still occasionally violates the rules — especially in Chinese-language scenarios, the model's understanding of "valid filename" differs from the OS. **Rather than demanding 100% compliance from the LLM, it's better to add an engine-level normalize layer.**
-- "Why normalize before index sync?": ensures scene_index.json always records only the canonical name; all downstream consumers (PersonaGenerator / recall / audit platform) see clean data.
+- "Why not rely only on the prompt?": a prompt is a soft constraint. The engine still needs deterministic path validation and normalization.
+- "Why normalize before index sync?": it ensures `scene_index.json` records canonical names and downstream readers such as PersonaGenerator and recall use the same path.
 
 ---
 
@@ -913,60 +697,51 @@ flowchart LR
 
 **Interview answer:**
 
-This is a very practical version-migration problem.
+This is a practical file-schema compatibility problem.
 
-**Pre-v0.2**: every session's threshold was hardcoded `everyNConversations`.
-**v0.3 added warm-up**: threshold doubles from 1 to N; a new field `warmup_threshold` was added to `PipelineSessionState`.
+**Current implementation:** the checkpoint is the local file `.metadata/recall_checkpoint.json`, not a database field. `CheckpointManager.readRaw()` parses that file, merges top-level defaults, migrates the legacy combined `session_states` shape into `runner_states` and `pipeline_states`, and then fills missing per-session fields from defaults.
 
-**Problem**: after upgrading, old checkpoint files don't have the `warmup_threshold` field.
-
-Our checkpoint is a JSONB column in PG. On pipeline startup, `JSON.parse` + direct `Object.entries(restoredStates)` injects back into the sessionStates Map. Without handling, old sessions' `warmup_threshold` would be `undefined`, and `getEffectiveThreshold` would return a wrong value.
-
-**Fix**:
+For `warmup_threshold`, the safe default is `0`, which means the session has graduated from warm-up and should use `everyNConversations`:
 
 ```typescript
-const patched = { ...state };
-if (patched.warmup_threshold == null) {
-  // Old checkpoint missing field → treat as "graduated"
-  patched.warmup_threshold = 0;  // 0 means graduated
-}
-this.sessionStates.set(sessionKey, patched);
+const DEFAULT_PIPELINE_STATE = {
+  // ...other fields...
+  warmup_threshold: 0,
+};
+
+cp.pipeline_states[key] = {
+  ...DEFAULT_PIPELINE_STATE,
+  ...state,
+};
 ```
 
-**Key points of this "backfill on load" pattern**:
+That avoids restarting warm-up just because an older checkpoint lacks the field. The same manager also uses a per-file async lock and temp-file-plus-rename for atomic updates; compatibility and write atomicity are separate concerns.
 
-1. **Missing fields must have a "safe default"**: here we chose 0 (graduated) rather than 1 (restart warm-up), because old sessions have already accumulated a lot of conversation and shouldn't regress to a low threshold.
-2. **Don't put complex logic in schema migration**: the more if/else, the more dangerous. One line of compatibility is more stable than a 50-line migrator.
-3. **Banking scenarios are extra sensitive to compatibility**: in-house core systems must not fail rollback due to an upgrade. Every new field must guarantee forward compatibility.
+**How I explain the pattern:**
+
+1. A missing field needs an explicit semantic default, not just a TypeScript optional marker.
+2. A structural migration, such as splitting `session_states`, should be explicit and deterministic.
+3. I would test both the legacy shape and a current checkpoint with selected fields missing, then verify that reading and rewriting preserves both runner-owned and pipeline-owned state.
 
 ⚠️ **Drilling points**:
 
-- "Why not just make it a breaking change and have users re-run?": multiple in-house business channels are integrated; forcing a checkpoint reset means throwing away all L1 extraction progress. Zero tolerance.
-- "What if more fields are added in the future?": each new field gets one backfill line; a few thousand sessions isn't a large collection; adding a few lines doesn't bloat the code much.
-- "How do you ensure backfill logic is covered by tests?": P0-4 test case specifically loads an old checkpoint fixture (v0.2 format) and verifies correct post-upgrade behavior.
+- "Why not reset the checkpoint?": because the checkpoint contains capture and extraction cursors. Resetting it can cause expensive reprocessing and duplicate pressure, so compatibility is safer when the old state is still meaningful.
+- "What if more fields are added?": I would add a documented default and a compatibility test for each field. If the semantic conversion is not backward-compatible, I would use an explicit schema version and migration instead of stacking ad hoc defaults.
+- "Does the source prove a named migration test?": no. I can describe the test that should exist, but I should not invent a test name or fixture.
 
 ---
 
-## 4.4 Singleton trap during multi-Agent integration
+## 4.4 Repeated registration and singleton state
 
-**Typical question:** How do you handle duplicate registration when different Agents integrate with the mid-tier?
+**Typical question:** How do you keep Offload registration consistent if the host invokes plugin registration more than once?
 
 **Interview answer:**
 
-The mid-tier calls `register(api, config)` **multiple times** in these scenarios:
+The source comment says the host lifecycle can call registration multiple times with different API instances, and only the latest API instance remains live. I would state that fact without inventing reconnect, configuration-center, or deployment stories.
 
-1. Each Agent's initial registration at startup.
-2. Agent reconnection (network jitter) triggers re-registration.
-3. Config changes (in-house config center push) trigger reload.
+**Current implementation:**
 
-**The pitfall**: each register uses the same plugin id, but **the api and config instances are new**. Without deduplication:
-
-- The same hook name registered N times → every user message triggers N captures, data duplicated.
-- registerContextEngine fails the second time (slot already occupied), but hooks were already registered first → system enters inconsistent state.
-
-**Our handling**:
-
-1. **Hooks register directly**: because `api.on()` binds to the last-registered api instance, the old one automatically becomes invalid.
+1. **Hooks register on the API instance supplied by that lifecycle call.** Earlier API instances are discarded by the host according to the source contract.
 2. **Context Engine uses singleton + hot-update**:
 
 ```typescript
@@ -979,8 +754,8 @@ if (!_sharedEngine) {
 }
 ```
 
-3. **SessionRegistry / L2 scheduler timer uses module-level state**: persisted across register calls; not re-created.
-4. **On first registerContextEngine failure, immediately short-circuit**:
+3. **SessionRegistry and scheduler-related state are module-level**, so hooks and the Context Engine resolve the same session managers across registration calls.
+4. **Context Engine registration is attempted once.** Later calls update the existing engine's closures. If the configured slot belongs to another engine or registration is rejected, Offload sets `_contextEngineRejected` and the hooks become no-ops.
 
 ```typescript
 if (result?.ok === false) {
@@ -989,7 +764,7 @@ if (result?.ok === false) {
 }
 ```
 
-Why make subsequent hooks no-op rather than directly unregistering? Because the Agent framework doesn't expose an unregister API. We can only guard inside the hook:
+The no-op guard is necessary because this integration does not have an unregister path in the API surface used here:
 
 ```typescript
 api.on("after_tool_call", (...args) => {
@@ -998,32 +773,25 @@ api.on("after_tool_call", (...args) => {
 });
 ```
 
-⚠️ **Lesson from this problem**:
-
-- **When the Agent framework's lifecycle is uncontrollable, all plugin state must assume N registrations.** Every external resource (timer / process / connection) must have an idempotent setup + hot-updatable reference.
-- **Never assume register is called only once** — especially in in-house systems: config center pushes, ZK watches, network jitter, health-check reconnects — all trigger re-registration.
+⚠️ **What I would say in the interview:** registration and runtime state have different lifecycles. Shared state needs one owner, repeated setup needs idempotent behavior, and closures that depend on the latest API/config need an explicit update path. The repository proves this mechanism; it does not prove why a particular internal deployment invoked registration again.
 
 ---
 
-## 4.5 fastEstimate vs tiktoken: real performance optimization data
+## 4.5 fastEstimate vs exact tokenization: implementation and benchmark boundary
 
 **Typical question:** In your context compression, you mentioned replacing tiktoken with fastEstimate — how much did you save?
 
 **Interview answer:**
 
-This is an optimization with very clear quantitative results.
+The source supports a fast-estimate path and exact counting near decision boundaries. It does not, by itself, establish an end-to-end latency improvement.
 
 **Problem**: every `assemble()` call (before every LLM invocation) must calculate the current prompt's tokens to decide whether to compress.
 
-**Full tiktoken overhead**:
-
-- 200 messages + system prompt + user prompt → roughly 50K tokens.
-- tiktoken performs BPE encoding on every string; **full calculation takes roughly 3–10 seconds** (CJK text is slower; in-house conversations are primarily Chinese).
-- This latency sits on the critical path from user question submission to LLM response start; the business side directly feels it.
+Exact tokenization costs CPU on the prompt-building path, especially for long messages. The actual duration depends on tokenizer, hardware, message shape, and cache state, so I would measure it rather than quote a remembered latency.
 
 **Our optimization**:
 
-1. **fastEstimate**: CJK characters / 1.7 + others / 4, ~5ms.
+1. **fastEstimate**: use a character-based approximation to cheaply decide whether the prompt is far from a compression boundary.
 2. **Three-stage decision logic**:
 
 ```
@@ -1035,7 +803,7 @@ Otherwise:
     → fastEst in mild range, also use fastEst (mild doesn't need exact count)
 ```
 
-3. **Boundary incremental estimate**: after the last aggressive compression, record `_lastAggressiveBoundary = { keptMsgCount, remainingTokens, fingerprint }`. Next round, if new messages are few (< 20), only calculate tokens for the new ones, plus the cached base.
+3. **Boundary incremental estimate**: after compression, cache the kept-message boundary and fingerprint; if the prefix is unchanged, estimate only newly appended messages.
 
 ```
 incrementalEst = lastBoundaryTokens + fastEstimate(newMessagesOnly)
@@ -1043,18 +811,14 @@ incrementalEst = lastBoundaryTokens + fastEstimate(newMessagesOnly)
 
 As long as incrementalEst < aggressive threshold, **the entire tiktoken call is skipped.**
 
-**Actual results** (based on real R&D-productivity Agent data):
-
-- 90%+ of turns take the fast path; the assemble phase drops from ~3s to ~5ms.
-- p95 end-to-end agent response time drops 30% (because assemble blocks the main flow).
-- In extreme cases, the boundary can even cache across turns, skipping tiktoken for 5–10 consecutive turns.
+To quantify this optimization, I would benchmark the same prompt corpus with and without the fast path, recording estimate error, exact-tokenizer calls avoided, prompt-build p50/p95, overflow rate, and end-to-end latency. The source alone does not establish the fast-path hit rate or latency improvement.
 
 ⚠️ **Drilling points**:
 
-- "How was the 0.85 safety margin determined?": fastEstimate's measured error vs tiktoken is within ±10% (slightly larger for CJK text). 0.85 leaves a 15% margin, which is sufficient.
+- "How was the safety margin determined?": it is a heuristic policy and should be calibrated on representative prompts. Do not claim a ±10% error bound without a benchmark artifact.
 - "What is tail-accumulate?": when there's no boundary yet before the first compression, accumulate tokens from the tail backward until 60% of budget, trimming the front. Much faster than multi-round aggressive from the head.
 - "What if inaccuracy causes a token overflow?": there's an emergency fallback — if the LLM call actually errors out due to token overflow, emergencyCompress forces compression to 60%. That's the last line of defense.
-- "Why does the bank care so much about 3s of latency?": the customer-service Agent's SLA requires the first character returned within 5s; 3s spent on token counting eats the entire budget.
+- "Why optimize this path?": prompt assembly occurs before the model can respond, so unnecessary CPU work directly consumes the interaction latency budget. The exact SLO requires product evidence.
 
 ---
 
@@ -1066,11 +830,10 @@ As long as incrementalEst < aggressive threshold, **the entire tiktoken call is 
 
 `tool_use` ↔ `tool_result` pairs **must absolutely never be split apart.**
 
-**Background**: the in-house AI-compute gateway supports tool calling and has strict rules on message structure:
+**Background**: many model APIs require valid `tool_use` / `tool_result` structure:
 
 - An assistant message containing a `tool_use` block must be immediately followed by a `tool_result` (or a user message containing a tool_result).
-- If only `tool_use` remains without its `tool_result`, the gateway directly returns `400 Bad Request`.
-- If only `tool_result` remains without its corresponding `tool_use`, same 400.
+- Orphaned calls or results can cause schema rejection or corrupt the model's understanding, depending on the provider.
 
 **Scenarios where compression can break pairing**:
 
@@ -1085,12 +848,12 @@ As long as incrementalEst < aggressive threshold, **the entire tiktoken call is 
 2. **Backward extension**: if the first message in the keep zone is an assistant tool_use, but its tool_result is before the keep zone (impossible but defensive), extend deletion to include it.
 3. **Mixed message strip**: when an assistant message has both text and tool_use, separately strip only those tool_use blocks whose corresponding results were deleted, keeping the text.
 
-This section in the code is called "Tool-pair safety" and has a dedicated module of roughly 1500 lines handling it.
+The code contains explicit pair-safety logic. Module size is not evidence of correctness and should not be quoted from memory.
 
 ⚠️ **Drilling points**:
 
-- "What if a tool_use id and tool_result id don't match?": won't happen — the AI-compute gateway itself enforces pairing. If it did happen, it would mean a bug in the upstream Agent framework, and the 400 would alert us.
-- "Has a 400 occurred online?": early on, 3 times — all due to tool-pair being broken by compression. After the fix, 0 times. This metric is a tier-1 online monitoring alert.
+- "What if IDs don't match?": validate and preserve or remove the pair as a unit; do not rely only on the upstream API to catch it.
+- "Has this happened online?": the repository does not establish an occurrence count. Describe the invariant and tests instead.
 
 ---
 
@@ -1100,12 +863,12 @@ This section in the code is called "Tool-pair safety" and has a dedicated module
 
 **Interview answer:**
 
-In-house conversations are primarily Chinese. The key to Chinese BM25 is tokenization. We use jieba (native implementation, far better performance than interpreted), but with **soft dependency** handling:
+For Chinese BM25, tokenization is critical. The local implementation can use the native jieba module with a soft-dependency fallback:
 
 **Why soft dependency**:
 
 - The jieba native module has precompiled binaries for macOS arm64 / Linux x64 / Windows x64.
-- But some in-house images are based on Alpine Linux, lacking the musl compatibility layer, so installation fails.
+- Alpine/musl and unsupported runtime combinations are common examples where a native dependency may fail to install.
 - We don't want the mid-tier to fail to start because of this.
 
 **Approach**: lazy require + singleton cache + silent fallback:
@@ -1130,11 +893,9 @@ function getJieba(): JiebaInstance | null {
 - jieba available → `cutForSearch`, search-engine-mode tokenization, best recall.
 - jieba unavailable → unicode regex `/[\p{L}\p{N}_]+/gu`, split by word boundary; for Chinese this splits by sentence (since there are no spaces), but **it still works**.
 
-Recall quality degrades slightly on the fallback path, but it **never crashes**.
+The fallback keeps the process available, but recall quality and even token boundaries can change. That degradation should be surfaced and benchmarked.
 
-**Banking terminology enhancement**:
-
-We also maintain an **in-house business lexicon patch**, adding financial terms jieba doesn't recognize (e.g., "对账差异" [reconciliation discrepancy], "普惠贷" [inclusive lending], "行内协同" [in-house collaboration]), merged into the default dictionary when jieba loads. This part is maintained jointly with the algorithm team.
+Domain dictionaries are a reasonable future enhancement, but this draft does not prove an in-house banking lexicon or joint ownership with an algorithm team.
 
 ⚠️ **Drilling points**:
 
@@ -1143,143 +904,81 @@ We also maintain an **in-house business lexicon patch**, adding financial terms 
 
 ---
 
-## 4.8 Test coverage and P0 test suite
+## 4.8 Test strategy and evidence boundary
 
 **Typical question:** How do you ensure quality in such a system?
 
 **Interview answer:**
 
-We built three tiers of testing:
+**Current evidence:** the checked-in Vitest tests cover the auth-profile key fallback, sanitization rules, and time utilities. The repository also has Vitest and E2E configuration, but configuration is not test coverage. Scheduler startup, session-scoped shutdown, parser, RRF, checkpoint, and Mermaid safeguards are visible in source; I should not say they have tests unless those test files are actually present.
 
-**Tier 1: Unit tests** (vitest / pytest)
-- Cover pure functions: sanitize, time, l1-parser, l2-parser, scene-format, PII-scrubber, etc.
-- ~200 cases total, runs < 5s.
-- Runs on every commit in the in-house CI pipeline.
+**Next-version test plan:** I would use three layers:
 
-**Tier 2: P0 concurrency test suite**
+1. **Deterministic unit and integration tests** for parsing, storage, retrieval fusion, checkpointing, compression boundaries, and Tool-pair invariants.
+2. **Concurrency and lifecycle tests** for repeated registration, concurrent startup, session flush, process shutdown, pending background work, and recovery.
+3. **Recorded-model and benchmark tests** for malformed JSON, extraction quality, conflict handling, token/cost regression, and drill-down recovery.
 
-Dedicated tests written for historically encountered race conditions:
-
-1. `P0-1: handleSessionEnd must be scoped to its session` (prevents recurrence of the 3.5 bug).
-2. `P0-2: concurrent capture during scheduler start` (prevents 3.4).
-3. `P0-3: cold session GC + recovery roundtrip`.
-4. `P0-4: warm-up backfill from old checkpoint` (prevents 4.3).
-5. `P0-5: bgTasks drain on destroy` (prevents background embedding failing on DB close).
-6. `P0-6: PII scrubber covers all 5 types` (compliance hard requirement).
-7. `P0-7: tenant isolation enforced at every store call` (compliance hard requirement).
-
-**These cases aren't just written and forgotten** — CI runs them 100 times; 0 failures are required to pass. Race conditions sometimes only surface once in dozens of runs.
-
-**Tier 3: E2E business scenario runs**
-
-Before each release, run a complete business scenario in the shadow environment (~30 minutes) to ensure token and pass-rate metrics don't regress. **This is the most expensive tier of CI** — roughly $50 in model invocation costs per run (in-house AI-compute gateway billing).
-
-**Bank-specific "compliance tests"**:
-
-- PII leak test: fixed fixture input (containing real-pattern national IDs / card numbers / phone numbers), verifying all PII is redacted.
-- Audit completeness test: mock a complete conversation, verifying 100% of LLM calls have corresponding audit logs.
-- Tenant isolation test: write data in tenant=A, query in tenant=B — must find nothing.
+If multi-tenancy or regulated PII handling is added, isolation, deletion, redaction, and audit completeness become release gates. They are design requirements here, not proof of an existing bank CI process.
 
 ⚠️ **Drilling points**:
 
-- "What's the coverage?": line coverage ~75%, branch coverage ~60%. We don't chase 95% line coverage because a lot of code is LLM-driven and unit tests can't cover it.
-- "How do you test LLM output?": use recorded fixtures (response.json), replay them to the parser; only test format correctness for the prompt portion.
-- "What happens if a compliance test doesn't pass?": blocks the release — cannot go live. This is a mandatory in-house process.
+- "What's the coverage?": quote only a current coverage report. The checked-in configuration does not establish a coverage percentage, test count, runtime, or repeated-run stability.
+- "How do you test LLM output?": inject a fake `LLMRunner` and feed deterministic valid, fenced, extra-text, malformed, and empty responses through the real caller. If I later keep sanitized provider-response fixtures, I would version their model and prompt metadata; those fixtures are not present in the current checked-in tests.
+- "What happens if a safety gate fails?": in a proposed release policy, the affected capability should not roll out until the failure is resolved or formally risk-accepted. Do not claim a mandatory internal process without evidence.
 
 ---
 
 # Part 5: Collaboration & Coordination
 
-## 5.1 Cross-business-channel integration: from customer service to R&D to risk control
+## 5.1 Source-backed cross-host integration and collaboration answer
 
-**Typical question:** How did you collaborate with different business channels to get the mid-tier adopted?
+**Typical question:** How can the same Memory core integrate with different Agent hosts, and how would you coordinate that work?
 
 **Interview answer:**
 
-Let me tell the story of integrating the R&D-productivity Agent.
+The current core is TypeScript, not Python. OpenClaw integrates in process through hooks and tools. Hermes can call the HTTP Gateway. Standalone/CLI modes reuse `TdaiCore`. That is the source-backed multi-host story.
 
-**Starting point**: v0.2 only supported the customer-service Agent (Python framework). The R&D-productivity Agent team (Node.js graph-state-machine framework) wanted to integrate.
-
-**First sync**: their ask was "we use Node.js; give us an npm package."
-
-I immediately realized this couldn't be done that way:
-
-1. Our entire core is written in Python; rewriting a Node.js copy is unrealistic (cost ≥ 6 months).
-2. Even if rewritten, the two codebases would rapidly diverge; fixing one bug would require fixing it twice.
-3. In-house compliance requires every component to go through "security scan + code review + artifact repository publishing" — publishing two copies doubles the workload.
-
-**My proposed solution**: HTTP/gRPC mid-tier sidecar.
-
-- We expose an HTTP server (Python process), listening internally on :8420.
-- The Node.js Agent goes through a thin client that translates all requests to HTTP/gRPC.
-- This way **95% of the code is reused on both sides**; only an additional ~600-line gateway layer is needed.
-- In-house already has a mature gRPC + service discovery governance system; integration cost is zero.
-
-**The R&D-productivity Agent team's objections**:
-
-1. "One more process means more ops complexity": we did **independent mid-tier deployment + multi-Agent sharing** — not one sidecar per Agent, but the mid-tier as an independent microservice, all Agents calling the same cluster. Ops is our responsibility; their cost is zero.
-2. "Python ↔ Node IPC performance is poor": measured in-house gRPC latency at ~3ms; compared to the LLM call itself at hundreds of ms, it's negligible.
-3. "What about auth?": in-house already has inter-service mTLS + 4A auth; we plug into the existing system rather than inventing our own.
-
-**Final landing**:
-
-- The mid-tier is deployed on in-house K8s, independent namespace, multi-replica per tenant.
-- Each Agent calls via SDK (available in Python / Node / Java / Go).
-- SDK comes with built-in service discovery + retry + circuit breaking + trace_id passthrough.
-
-**Key collaboration details**:
-
-1. **Interface first**: after writing `gateway/types.proto` (gRPC schema), sent it to the business side for review first, confirming mutual understanding before starting implementation.
-2. **Mock service runs first**: I first gave the business side a mock gateway (does nothing but interface-aligned); they integrated the client first; I wrote the real implementation in the background. This way **both sides developed in parallel**, saving two weeks.
-3. **Error code alignment**: agreed on semantics and retry strategies for 401 (auth), 429 (rate limit), 500 (internal).
-4. **Phased delivery**: Phase 1 delivers only `recall` + `capture`; Phase 2 adds offload; Phase 3 adds persona. Each phase independently accepted.
+For cross-team delivery, I would start with an interface contract for capture, recall, search, and session lifecycle; define identity, error, timeout, retry, and idempotency semantics; provide a mock; and phase the integration so basic capture/recall works before optional offload. Deployment topology, mTLS, service discovery, K8s, gRPC, SDK languages, latency, line counts, and delivery-time savings all require separate internal evidence.
 
 ⚠️ **Drilling points**:
 
-- "What if a particular Agent team doesn't want to integrate?": respect their choice; the memory system is an enhancement, not a mandate. But we'll data-drive the demonstration of integration benefits (token cost, NPS) and let them evaluate for themselves.
-- "Who do they contact if something goes wrong after integration?": there's an in-house SLA agreement; the mid-tier is on-call. Weekly sync meetings with all 4 Agent teams to align on issues.
+- "What if a host team doesn't want to integrate?": keep the feature optional and demonstrate value with a workload relevant to that host.
+- "Who owns failures?": define ownership, support, rollback, and escalation before rollout; do not invent an existing SLA or weekly meeting.
 
 ---
 
 ## 5.2 Compatibility with the LLM platform / algorithm team
 
-**Typical question:** How did you interface with the algorithm team and the LLM platform?
+**Typical question:** What contract would you need with a model or embedding platform team?
 
 **Interview answer:**
 
-This integration was another major effort:
+This is a collaboration/design answer. The repository supports configurable model and embedding providers but does not prove a named internal platform team or past platform failures.
 
 ### 5.2.1 With the in-house AI-compute gateway (LLM gateway)
 
-All our LLM calls go through the in-house unified AI-compute gateway. Its advantage: unified **auth + rate limiting + audit + billing**. Its disadvantage: **upgrade cadence is not under our control.**
-
-Pitfalls encountered:
-
-- The AI-compute gateway upgraded and changed the `tool_use` block's field from `id` to `tool_use_id`. We received no notification; after the upgrade, all tool-pair safety broke. **Fix**: we agreed with the gateway team that **any schema change requires 2 weeks' advance notice**, and we maintain a compatibility mapping table.
-- The AI-compute gateway's `cached_tokens` field wasn't returned in early versions, so we couldn't monitor the prompt cache hit rate. **Fix**: we wrote an RFC to the gateway team, pushing them to add this field.
+The LLM-provider contract should cover auth, model identity, timeouts, retry semantics, rate limits, usage fields, structured-output/tool-call schemas, cache semantics, audit fields, and version-change policy. Add contract tests and compatibility mapping rather than relying on an undocumented schema.
 
 ### 5.2.2 With the algorithm team (Embedding / in-house LLM)
 
-In-house self-deployed BGE-M3 embedding + self-trained 7B industry small model. Both are maintained by the algorithm team.
+The embedding-provider contract should expose provider, model, dimensions, batching, quota, and failure behavior.
 
 **Pitfall 1: embedding model change causing dimension mismatch**
 
-The algorithm team once switched BGE-M3 from 1024 dimensions to 768 dimensions (cost optimization). Our PG still stored 1024-dim vectors; new queries became 768-dim — dimension mismatch, cosine calculation failed.
+If dimensions change, existing vector indices become incompatible. Persist model/dimension metadata, detect mismatch, and rebuild derived vectors while preserving stable records.
 
 **Fix**: store `provider/model/dimensions` sentinel in the DB. On startup, detect changes → trigger `reindexAll` full re-embedding.
 
-But reindexing is expensive (millions of embedding calls), so **by default it warns rather than silently reindexing**; ops colleagues confirm before running (the CLI has a dedicated `memory ctl reindex`).
+Reindexing can be expensive, so make it explicit, observable, resumable, and degradable to keyword retrieval. Exact commands and approval flow must match the current implementation.
 
 **Pitfall 2: embedding call quota**
 
-The algorithm team's BGE-M3 service has a quota; exceeding it triggers rate limiting (429). We didn't do quota management early on; during a holiday, a batch re-embedding job blew up the entire cluster, affecting other services.
-
-**Fix**: implemented our own token-bucket rate limiting; the algorithm team also added cluster-side quota management. **This is typical "bidirectional rate limiting" in in-house systems** — both the caller and the callee implement a layer, not depending on each other.
+If an embedding service returns 429 or exposes a quota, the caller should use bounded concurrency, `retry-after`, backoff, a total deadline, and resumable batch checkpoints. A provider should also protect itself, but this draft does not establish a holiday cluster failure.
 
 ⚠️ **Drilling points**:
 
-- "How do users perceive an embedding model change?": recall quality degrades slightly during reindexing; recovers after reindexing completes. We notify the business side in advance.
-- "Why not use an external LLM vendor's embedding service?": compliance forbids external APIs; BGE-M3 performs comparably for Chinese scenarios and is fully self-controlled.
+- "How do users perceive an embedding model change?": I cannot claim the effect is slight without a measurement. During reindexing, vector coverage may be incomplete, while keyword retrieval can still provide a fallback. In the next version I would expose reindex progress, compare retrieval quality before and during the rebuild, and choose rollout communication from the measured impact.
+- "Why not use an external embedding service?": decide from data classification, approved vendors, quality, latency, cost, and operational control. Do not claim a blanket compliance prohibition or comparable quality without policy and benchmark evidence.
 
 ---
 
@@ -1289,17 +988,15 @@ This section specifically collects the detail questions interviewers **love to d
 
 ## 6.1 ⚠️ Series: trap questions
 
-### Q1: Why is L1 asynchronous? Wouldn't synchronous be simpler?
+### Q1: Why is L1 scheduled instead of running on every turn?
 
 **Answer**:
 
-If L1 runs synchronously:
+**Current implementation:** turn commit captures L0 first. L1 is queued when the warm-up/conversation threshold is reached, when the session goes idle, or when an explicit flush happens. `handleSessionEnd` is one flush path and waits for the L1 queue; it is not the only trigger, and I cannot quote a fixed blocking time without traces.
 
-1. session_end is blocked for ~30s (one LLM call); the relationship manager feels it immediately.
-2. If the L1 call fails (model timeout / API error) → session_end fails → the business side sees no response.
-3. It consumes AI-compute gateway quota (in-house has concurrency limits).
+The reason for scheduling is that extraction is model-backed work that can be batched and retried. I do not want every normal turn to wait for it. The trade-off is eventual consistency: a newly captured fact may not be available as L1 memory immediately, and I now need a scheduler, checkpoint state, retries, and lifecycle handling.
 
-The "cost" of async: must implement scheduler, checkpoint, warm-up, retry. This cost is worth it because **session_end is a user-perceived critical path and must be protected.**
+**Next version:** if measured backlog or recovery requirements outgrow the in-process queues, I would move extraction jobs to a durable external queue. I would only do that after measuring queue age and restart behavior.
 
 ---
 
@@ -1307,16 +1004,11 @@ The "cost" of async: must implement scheduler, checkpoint, warm-up, retry. This 
 
 **Answer**:
 
-If L0 write fails → this round's L1 extraction will be short of material. But the code doesn't throw — `auto-capture` wraps the entire captureAtomically in a try/catch; on error, it logs + reports to in-house monitoring but returns.
+There is a subtle current-behavior detail here. `recordConversation()` catches a JSONL append failure, logs it, and still returns the filtered messages. Because the callback returns a non-empty result, `captureAtomically()` can advance the capture cursor. The code then continues with store indexing and scheduler notification.
 
-Subsequently:
+So I would not say, "the cursor stays put and the next turn retries." That is not what this path guarantees. If the SQLite/TCVDB upsert succeeds, L1 may still read the messages from the store, but the daily JSONL evidence copy is missing. If both copies fail, there can be a real durability gap. The benefit is that capture failure does not automatically crash the host turn; the cost is that fail-soft behavior can hide missing evidence unless it is measured.
 
-1. Recall still works (using previous data).
-2. The next round's capture will retry (cursor wasn't advanced).
-3. The scheduler won't freeze (even on L1 failure, there's retry + max retry logic).
-4. Monitoring alerts will notify on-call, but business-side usage is not affected.
-
-**Core principle**: **no failure may prevent the business side from using the product.**
+**Next version:** I would return an explicit `{ persisted, messages }` result, advance the durable cursor only after the chosen source of truth succeeds, and put failed writes into a bounded retry or dead-letter path. I would also expose a metric for "cursor advanced without JSONL persistence" rather than assuming an external alert already exists.
 
 ---
 
@@ -1327,12 +1019,12 @@ Subsequently:
 `l1-extractor`'s `parseExtractionResult` has three layers of defense:
 
 1. Strip markdown code fences (` ```json ... ``` `).
-2. Use `[\s\S]*]` to extract the largest JSON array (tolerates extra text before/after).
+2. Use `\[[\s\S]*\]` to extract a JSON array (tolerates extra text before/after).
 3. `sanitizeJsonForParse` fixes control characters (the LLM occasionally writes bare `\n` inside strings).
 
-If all three layers fail → return empty array → L1 extraction yields 0 memories this round, but **doesn't throw**. Next round retries.
+If parsing still fails, the current parser logs a warning and returns an empty array. That avoids throwing from the parser, but it also means this result is indistinguishable from a valid "no memories" result at the caller. The L1 runner can then advance its batch cursor, so I would not claim that the next round automatically retries the malformed response.
 
-The in-house self-trained LLM's JSON format stability is indeed not as good as top closed-source models, so this defense layer has been continuously in use.
+**Next version:** I would return a typed status such as `ok | empty | parse_error`. A parse error should preserve the raw response, use bounded retries, and move to a dead-letter path if it still fails. This answer does not depend on claiming that one internal model is worse than another.
 
 ---
 
@@ -1340,19 +1032,13 @@ The in-house self-trained LLM's JSON format stability is indeed not as good as t
 
 **Answer**:
 
-We tried structured output. The problem:
+I would describe the current design, not claim an undocumented structured-output experiment.
 
-- A scene is N markdown files, with cross-references between files (one scene referencing another's content).
-- Having the LLM return a giant JSON containing all files' content, operations, and relationships in one shot — **the output length easily exceeds the model's output window** (the in-house 7B model has a 4K token output cap).
-- Even if it didn't exceed, a giant JSON is hard to stream-parse.
+**Current implementation:** `SceneExtractor` runs a tool-enabled LLM runner with its workspace restricted to `scene_blocks/`. The model can inspect existing scene files and update the files it needs instead of returning every scene as one large response. The engine still owns the destructive step: the model can write `[DELETED]`, but only cleanup code calls `unlink`.
 
-After switching to agent mode (LLM using read_file / write_to_file tools):
+This design fits a multi-file workspace, but it is not free. Tool calls add orchestration complexity, partial writes are possible, and actual latency depends on the configured model and workload. That is why the current path takes a rolling backup before the run, restores it if the runner throws, normalizes filenames, and rebuilds the index afterward. I would quote model limits or latency only from the actual runtime configuration and traces.
 
-- The LLM itself decides what to read first, what to modify next, whether to merge.
-- Each file operation is independent, with retry boundaries.
-- Output length is no longer an issue (each write_to_file targets a single file).
-
-Cost: a single scene extraction went from 5s to 30s (multiple tool calls). But since it's an async pipeline, it's acceptable.
+**Next version:** I would compare this with a typed operation plan such as `create/update/delete` plus engine-applied writes. That could improve validation, but I would only switch after testing output size, merge quality, recovery, and latency on the same scene workload.
 
 ---
 
@@ -1360,14 +1046,14 @@ Cost: a single scene extraction went from 5s to 30s (multiple tool calls). But s
 
 **Answer**:
 
-They don't. By design, `node_id = {mmdPrefix}-N{n}`, where the first 3 digits are the mmd file sequence number. Each mmd file represents one task; **different tasks have different prefixes.**
+Within one Offload data scope, `node_id = {mmdPrefix}-N{n}` uses the three-digit MMD sequence plus a node ordinal. Different task canvases therefore use different prefixes:
 
 ```
 001-N1, 001-N2, 001-N3  ← task 1's nodes
 002-N1, 002-N2          ← task 2's nodes
 ```
 
-When L1.5 determines a task switch, it creates a new mmd (counter+1); the prefix is naturally different.
+When L1.5 chooses a new task, the implementation creates a new MMD sequence; when it resumes an existing task, it can target that existing MMD. This scheme is scoped, not globally unique. Isolation by the Agent data directory and the Offload mappings is part of the identity boundary.
 
 ---
 
@@ -1375,20 +1061,20 @@ When L1.5 determines a task switch, it creates a new mmd (counter+1); the prefix
 
 **Answer**:
 
-The in-house audit platform uses strongly-consistent writes — **if an audit record can't be written, business cannot continue**, otherwise it's a violation.
+This is a system-design scenario. The correct policy depends on data classification and the organization's compliance rules; the repository does not prove a particular audit platform or mandatory synchronous behavior.
 
-Our handling:
+I would design an explicit failure policy:
 
-1. Audit writes are synchronous (critical path), not asynchronous.
-2. When the audit platform is unavailable, first fall back to local disk writes (with a retry queue), while simultaneously **degrading business** — allow reads only, no writes.
-3. Once the audit platform recovers, the retry queue pushes the locally accumulated audit records up.
-4. If the local queue is full (extreme case) → reject write requests, protecting the compliance baseline.
+1. Classify operations into fail-closed and temporarily bufferable categories.
+2. For bufferable events, persist them durably with encryption, integrity protection, bounded retention, and a retry queue.
+3. For high-risk writes that require an audit record before execution, fail closed or require human approval.
+4. When the sink recovers, replay idempotently and reconcile gaps; reject new high-risk writes if the durable buffer is full.
 
-This is a hard constraint of in-house systems: **compliance takes priority over availability.**
+The trade-off should be documented as part of the SLO and threat model rather than asserted as a universal rule.
 
 ---
 
-## 6.2 System design follow-up questions
+## 6.2 Scenario-based system design follow-up questions
 
 ### Q1: Given a year to continue optimizing, what would you do?
 
@@ -1396,11 +1082,11 @@ This is a hard constraint of in-house systems: **compliance takes priority over 
 
 Ranked by ROI:
 
-1. **Cross-Agent memory sharing**: currently the 4 Agents are physically isolated, but the same relationship manager across the 4 Agents is actually the same person. If compliance permits, we could enable "limited memory sharing under the same in-house employee ID," allowing partial context transfer between customer service and R&D productivity.
-2. **Automated SOP promotion**: currently L4 SOP is manual. In the future, "L2 task canvas frequency reaching a threshold auto-promotes to SKILL.md."
-3. **Visual operations dashboard**: currently all intermediate artifacts are markdown / mermaid / jsonl — readable but scattered. Build a web dashboard so ops colleagues can see persona evolution, scene changes, and token consumption in one place.
-4. **Multimodal memory**: screenshots uploaded by customers, receipt images, voice-call summaries — all enter memory. This requires the in-house multimodal model to mature.
-5. **Federated learning direction**: SOP knowledge across relationship managers could be shared without leaking PII, but the implementation threshold is high. Unlikely to materialize within three years.
+1. **Retrieval traces and evaluation**: persist why each memory was recalled, then build labeled conflict, freshness, and drill-down tests.
+2. **Identity and deletion governance**: add explicit tenant/user scope, provenance validation, export, correction, and deletion semantics.
+3. **Scalable background execution**: externalize queue/checkpoint state only after a workload proves the in-process scheduler is the bottleneck.
+4. **Operational visibility**: expose queue age, recall composition, fallback, token, latency, and unsupported-memory signals.
+5. **Optional workflow promotion**: evaluate whether repeated successful task patterns can become reviewed Skills or SOPs; do not auto-promote solely from frequency.
 
 ---
 
@@ -1408,18 +1094,16 @@ Ranked by ROI:
 
 **Answer**:
 
-Two things worry me most:
+Three things worry me most:
 
-**First, the scheduler's in-memory state won't hold up.**
-Currently, each session has one PipelineSessionState + timer + buffer, all in a Map. At 10x users, the Map has 100K entries; GC pressure + Map.set/get overhead becomes significant.
-**Response**: split the scheduler into sharded workers (Redis-backed queue), each shard handling a portion of sessionKey hash space.
+**First, scheduler state and timers.**
+At larger scale, I would measure active-session cardinality, heap, GC, timer count, queue age, and recovery time. If the in-process design becomes the bottleneck, shard ownership and externalize durable queue/checkpoint state. A scale multiplier does not imply an absolute entry count without a baseline.
 
-**Second, PG write throughput.**
-In WAL mode, PG write throughput is roughly 5000 ops/s; at 10x, this becomes a bottleneck.
-**Response**: switch to the in-house vector DB / shard databases and tables (hash-modulo by tenant + customer_id_hash into 16 shards); or use Redis for hot data cache with PG only for cold storage.
+**Second, storage and retrieval.**
+Measure write contention, corpus growth, filtered recall latency, rebuild time, and tenant isolation. SQLite and a cloud vector backend have different limits; I would not quote 5,000 ops/s, PG, 16 shards, or a migration threshold without a benchmark.
 
-**Third, LLM call quota.**
-At 10x business volume, the AI-compute gateway quota alone may not suffice. Need more aggressive "extraction frequency control" — e.g., if the same customer has no significant new information across N consecutive turns, skip L1 extraction.
+**Third, model and embedding quotas.**
+Use bounded concurrency, batch where appropriate, coalesce triggers, prioritize fresh/high-value work, and degrade safely. Extraction skipping needs an explicit rule and evaluation because “no significant information” is itself a model decision.
 
 ---
 
@@ -1429,10 +1113,10 @@ At 10x business volume, the AI-compute gateway quota alone may not suffice. Need
 
 Three things I'd most want to change:
 
-1. **Do the host-neutral abstraction earlier**: the first version was directly bound to the customer-service Agent; the refactor cost wasn't small. If I'd extracted HostAdapter from the start, it would have saved a month.
-2. **L2 LLM agent mode should have been used from the start**: the first version used structured JSON; because cross-reference relationships between scenes couldn't be handled, we spent massive debugging time before ultimately switching to agent mode anyway.
-3. **Write concurrency test cases from day 1**: many race conditions only surfaced after going live. If P0-1 through P0-7 tests had existed from the start, at least 3 online incidents could have been avoided.
-4. **PII redaction from day 1, don't retrofit**: in v0.1 we built L0/L1 first and added PII later. As a result, there was a 2-week window where L0 data was unredacted. We later had to run a batch retroactive redaction job — very painful. **In banking projects, compliance first.**
+1. **Define host and provider contracts early**, while avoiding abstractions that are not justified by a second implementation.
+2. **Make provenance and conflict policy structural**, rather than relying mainly on prompt instructions.
+3. **Add concurrency and lifecycle tests early** for startup, session end, shutdown, checkpoint writes, and background work.
+4. **Design privacy, tenant identity, deletion, and retention before ingesting sensitive data.** This is a lesson and proposed design principle, not a claim about a two-week unredacted production window.
 
 ---
 
@@ -1452,13 +1136,13 @@ If interviewing for an Agent platform / Memory Infra role, you can counter-ask:
 
 The easiest way to tell a shallow version of this project is to only talk about the tiered architecture and Hybrid RRF. But **what really makes an interviewer nod is**:
 
-- I can explain **why we didn't directly use an open-source Memory solution** (compliance + mid-tier + banking context).
-- I can describe **how the prompt cache was busted at launch**.
-- I can name real bugs like **handleSessionEnd clearing the wrong session.**
+- I can explain the project's concrete requirements and compare current framework versions without absolute competitor claims.
+- I can explain the prompt-cache instability scenario and how I would verify it.
+- I can explain source-commented defects such as session-scoped flush versus process-scoped shutdown without inventing operational impact.
 - I can explain **why LLM soft-delete writes `[DELETED]` instead of granting an unlink tool.**
-- I can use quantitative data to describe **how fastEstimate saved 3s of latency.**
-- I can talk about **bank-context PII redaction / audit / multi-tenant isolation** and how they're done.
+- I can explain the fast-estimate optimization and the benchmark needed before quoting latency savings.
+- I can separate current cleaning behavior from a regulated-production privacy, audit, and tenancy design.
 
 Remember one sentence:
 
-> **A Memory system isn't hard at the algorithm level. It's hard at engineering stability, concurrency, degradation, observability, and evolvability — and even harder at compliance, audit, multi-tenant isolation, and the other hard constraints unique to banking.** Being able to articulate these deeply is what convinces an interviewer you've built real things.
+> **A Memory system is not only a retrieval problem. It also requires evidence fidelity, lifecycle control, concurrency, degradation, observability, privacy, and deletion governance. The strongest interview answer separates what the source implements, what a benchmark measured, and what I would still design for production.**

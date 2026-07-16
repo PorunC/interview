@@ -1408,15 +1408,15 @@ flowchart TD
 
 ### Q10: LLM cache 的命中条件是什么？
 
-> cache_key 是 repo、task_type、cache_namespace、input_hash、model、prompt_version 的组合。input_hash 是对 input_payload 做 SHA256。相同 repo、task、cache_key、input_hash、model、prompt_version 下有成功响应就直接返回 cached run。prompt_version 变了自然失效。cache 命中时还会写一条 cached=True 的运行记录 cost_usd 为 0。
+> cache_key 是 repo、task_type、cache_namespace、input_hash、model、prompt_version 的组合。input_hash 是对 input_payload 做 SHA256。相同组合下有成功响应就返回 cached run，prompt_version 改变会失效。还要主动说一个边界：当前 `check -> call -> record` 没有同 Key singleflight 或 in-flight lease，两个相同请求同时首次进入仍可能重复调模型。
 
 ### Q11: GraphRAG 召回太大怎么办？
 
-> 用 token budget 控制 source chunks 数量；节点扩展限制 max_hops，Wiki 页面固定 3 跳；chunk 选择按 seed proximity、FTS/vector hit、边关系排序；必要时把社区摘要作为高层上下文而不是把所有源码都塞进去。
+> 当前用 token budget 控制 Source Chunk，图扩展还限制 max_hops、节点、关系和社区数量。要注意默认 8000 不是最终 Prompt 的硬上限，因为 Source Chunk 选完后还会追加社区摘要和 Graph Facts；下一版需要给源码、图、社区和输出分别留预算，并在打包后用真实 Tokenizer 再精算。
 
 ### Q12: FTS5 和 PostgreSQL tsvector 区别？
 
-> SQLite 用 FTS5 加 bm25 排序函数，中文要配 jieba 分词。PostgreSQL 用 websearch_to_tsquery 加 ts_rank_cd，中文要配 zhparser 扩展。两者都是 BM25 变体但实现不同。CodeWiki 抽象了 search_code_chunks_fts 接口，底层按 store 类型走不同实现。
+> 当前 SQLite FTS5 使用 `unicode61` Tokenizer，PostgreSQL 使用 `simple` 文本配置并通过全文查询与排名函数检索；项目没有内置 jieba 或 zhparser。Node 名称、路径、Symbol 的精确/LIKE 匹配和可选向量召回提供额外兜底。中文分词和 camelCase/snake_case 拆词是下一版改进，不能说成现状。
 
 ### Q13: 向量表为什么按维度分表？
 

@@ -1,6 +1,8 @@
 # AI Agent 面试题专业简短版
 
 > 定位：不绑定具体项目的 Agent 基础知识库，按专业面试回答口径压缩为简短答案。项目事实不要从本文反推，应以 [问题资料索引](../README.md) 中三个专项主文档为准。
+>
+> LangChain/LangGraph 当前版本、弃用 API 和框架选型请优先使用 [LangChain、LangGraph 与主流 AI 框架面试题](./LangChain-LangGraph与主流AI框架-面试题.md)。本文为通用知识库，部分 Classic API 仅适合识别历史题目。
 
 ## 目录
 - 课前必读
@@ -19,6 +21,7 @@
 - 13. python
 - 14. SKILL
 - 15. Harness
+- 16. 实战边界补充
 
 ## 课前必读
 
@@ -309,7 +312,7 @@ Agent 的记忆系统、trace log 正是为补这三点。
 | 策略层 | 推理范式（ReAct/Plan-Execute/ToT） | Agent 框架编排 |
 | 引导层 | prompt+工具描述+few-shot | 工程师可控 |
 
-三层共同决定推理质量，单换大模型不解决策略层和引导层问题——这是"同样用 GPT-4，效果差 20%-50%"的根因。
+三层共同决定推理质量，单换大模型不解决策略层和引导层问题。同一模型在不同任务、Prompt 和 Harness 下可能差异很大，具体幅度必须由固定评测证明。
 
 **Neuro-Symbolic 推理（神经-符号融合）**：前沿方向——LLM 负责语义理解/开放域推理，符号系统负责确定性强约束（数学证明/逻辑推理/规则校验）。代表：Faithful CoT、Program-of-Thoughts（LLM 写程序、程序算结果）。生产里"关键业务走规则、开放推理走 LLM"正是这套思想的工程化。
 
@@ -766,7 +769,7 @@ GPT/Claude/Llama 基本都用 BPE 变体。BPE 原始提出 Philip Gage 1994（�
 
 **模型分级与适用**：前沿大（GPT-4o/o3、Claude Opus、Gemini Ultra）复杂推理开放任务；中等（Claude Sonnet、GPT-4o、Qwen-Max）通用主力；小快（Haiku/Mini/Flash、7B 开源）简单任务高并发；推理模型（o1/o3、R1）数学/代码/科学。
 
-**模型路由（成本优化）**：简单任务→小模型，复杂任务→大模型，路由器用规则集/轻量分类器/LLM 路由。工具：LiteLLM Router、RouteLLM。收益：成本降 30-60%，质量不明显降。
+**模型路由（成本优化）**：简单任务→小模型，复杂任务→大模型，路由器用规则集/轻量分类器/LLM 路由。工具：LiteLLM Router、RouteLLM。收益取决于任务分布、模型价差和误路由率，必须同时测质量与成本，不能预设固定降幅。
 
 **抽象层必要性**：LLM 调用封装统一接口（BaseLLM），切换模型只改配置/适配层，业务代码不耦合具体 SDK，防 vendor lock-in 便于 A/B 和切换。工具：LiteLLM、LangChain ChatModel。
 
@@ -774,13 +777,13 @@ GPT/Claude/Llama 基本都用 BPE 变体。BPE 原始提出 Philip Gage 1994（�
 
 **有效上下文 vs 标称上下文**：标称是最大输入长度，有效是召回精度可接受的长度，通常远小于标称（lost-in-the-middle）。长上下文模型（Gemini 2M/Claude 200K）能直接塞大量文档但成本高、有效利用率受限，RAG 仍常优于纯长上下文塞入。
 
-**易追问点**：大模型和小模型怎么分工？答：常见成本优化是路由——简单任务（分类/摘要/格式转换）路由小模型（7B 本地或 Haiku），复杂任务（多步推理/长文档）路由大模型。分层路由通常能在不明显降质量前提下把成本降 30-60%。
+**易追问点**：大模型和小模型怎么分工？答：常见做法是把分类、格式转换等稳定任务交给满足质量门槛的小模型，多步推理和高风险任务升级到大模型。节省多少必须用自己的流量分布和 Eval 计算。
 
 ### 031. Prompt 对 LLM 输出有什么影响？
 
 **答：**
 
-**影响机制**：Prompt 决定 LLM"看到什么"，直接影响生成概率分布。同模型不同 prompt，任务成功率可差 20-50%。Prompt 工程是"可控性"的核心手段。
+**影响机制**：Prompt 决定模型看到的指令、上下文和输出约束，会显著影响生成结果；差异幅度与任务和模型有关，必须通过固定数据集对比。
 
 **Prompt 关键组成**：角色/系统设定（定基调与边界）、任务指令（明确做什么）、上下文/背景（提供必要信息）、Few-shot 示例（示范期望输出）、格式约束（结构化输出）、约束条件（何时做/不做）。
 
@@ -854,7 +857,7 @@ GPT/Claude/Llama 基本都用 BPE 变体。BPE 原始提出 Philip Gage 1994（�
 
 **权威定义**：维基百科"the process of structuring natural language inputs (known as prompts) to produce specified outputs from a generative AI model"。2023 年"prompt"入围牛津年度词汇亚军。
 
-**核心目标**：系统化设计指令、上下文、示例和输出约束，提升模型输出的可控性、稳定性和可评估性。Prompt 决定 LLM"看到什么"，直接影响生成概率分布——同模型不同 prompt 任务成功率可差 20-50%。
+**核心目标**：系统化设计指令、上下文、示例和输出约束，提升模型输出的可控性、稳定性和可评估性。同模型不同 Prompt 的效果可能明显不同，但不能脱离任务集报固定提升区间。
 
 **主要技术谱系**：Zero-shot/Few-shot（示例引导）、CoT（逐步推理，Wei et al. 2022）、Self-Consistency（多路径投票）、ReAct（推理+行动）、Tree of Thoughts（树搜索回溯）、RAG（检索增强）、Role assignment（角色设定）、自动 prompt 优化（DSPy/OPRO/APE）、soft prompting/prompt tuning（梯度搜索连续向量）。
 
@@ -1188,7 +1191,7 @@ class SearchArgs(BaseModel):
 
 **eval-driven 迭代**：prompt 变更用流量实验 A/B 决策，不靠感觉。每次改动在 eval set 跑分，防"感觉变好"。
 
-**易追问点**：Prompt 优化和模型升级哪个更重要？答：视情况——模型升级提升能力上限，prompt 优化逼近上限。先优化 prompt 榨干当前模型（成本低），再考虑换更强模型。同一模型不同 prompt 效果可差 20-50%，说明 prompt 优化空间常被低估。
+**易追问点**：Prompt 优化和模型升级哪个更重要？答：先诊断失败原因。指令歧义、上下文缺失和输出约束问题优先改 Prompt/Harness；基础推理能力不足再换模型。最终用同一 Eval 比较，不能默认某一种总是收益更大。
 
 ## 4. Agent 架构
 
@@ -2235,7 +2238,7 @@ Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向
 
 **2024-2025 重组**：围绕 `langchain-core` 重组——核心抽象与集成包解耦（`langchain-openai`、`langchain-anthropic` 等独立包）。重新定位为"agent engineering platform"，把复杂有状态 Agent 编排交给 LangGraph，自身聚焦"可组合组件+集成+互操作"。推出 `Deep Agents` 高层包（基于 LangGraph，内置 planning/subagents/file system）。
 
-**优缺点**：优点——集成最全、社区最大、模型可互换、原型快、与 LangSmith/LangGraph 联动；缺点——v0.1→v0.3 API 不向后兼容（网上旧教程失效）、抽象层多带来约 10-25% 额外 token 开销、AgentExecutor 状态隐式扩展性弱。
+**优缺点**：优点是生态和集成丰富、原型快、与 LangSmith/LangGraph 联动；缺点是历史版本 API 变化大、抽象泄漏时排错复杂，Classic AgentExecutor 的隐式状态也不适合所有生产流程。额外 Token 和延迟要按实际链路测，不报通用百分比。
 
 **易追问点**：LangChain 和 LangGraph 怎么配合？答：两者分层协作不冲突——LangGraph 节点内部可直接调 LangChain 的 tool/chain。LangChain 做组件集成，LangGraph 做有状态编排。
 
@@ -2330,7 +2333,7 @@ Action: finish[答案]
 - `Process`：sequential（顺序）、hierarchical（自动指派 manager 做委派与校验）。
 - `Flows`（生产架构）：事件驱动工作流，Pydantic 状态管理，装饰器 `@start`/`@listen`/`@router`。"Crews 给自主性，Flows 给精确控制"。
 
-**设计理念**：角色-任务模型直观、上手快、无 LangChain 耦合、官方称某些 QA 任务比 LangGraph 快约 5.76x。Crews+Flows 双层兼顾自主与控制。
+**设计理念**：角色-任务模型直观、上手快、无 LangChain 耦合；Crews+Flows 双层分别表达开放协作和显式流程。不同框架性能必须在同任务、模型和配置下测试，不引用营销场景的倍数作为通用结论。
 
 **2024-2025 进展**：引入 Flows 生产架构、CrewAI AMP Suite（Control Plane/tracing/可观测/私有化部署）、CrewAI Skills（面向 Claude Code/Cursor 等编码 Agent 的脚手架指令）、MCP 集成、UV 依赖管理。
 
@@ -2397,7 +2400,7 @@ Action: finish[答案]
 
 **混合方案（推荐）**：框架做编排（LangGraph 图/CrewAI 角色），自研高频核心路径（工具选择、缓存层、记忆存储）。用"绞杀者模式"渐进迁移，避免全量切换。
 
-**框架的隐藏成本**：抽象泄漏（出 bug 时难定位）、版本动荡（LangChain v0.1→v0.3 不兼容）、性能开销（10-25% 额外 token）、锁定风险、学习曲线。对策：适配器层隔离，业务代码只依赖自己的接口。
+**框架的隐藏成本**：抽象泄漏、版本变化、额外序列化与上下文、锁定风险和学习曲线。对策是适配器隔离，业务代码只依赖自己的接口，并用 Trace 实测 Token 与延迟开销。
 
 **易追问点**：框架选错了怎么迁移？答：如果一开始做了适配层迁移相对可控（换适配器业务不动）；如果直接耦合框架 API 迁移成本高。经验：选型初期多花 3 天调研原型验证，比后期迁移省 3 个月。
 
@@ -2651,7 +2654,7 @@ Action: finish[答案]
 
 **方法**：先做 trace 分析定位瓶颈，再用小模型路由、并行工具、缓存、上下文裁剪和流式输出优化。不要盲目压缩所有步骤。
 
-**关键指标**：TTFT（Time To First Token 首 token 延迟，<500ms 目标）、TPS（Tokens Per Second 生成速度）、ITL（Inter-Token Latency token 间隔，均匀）。
+**关键指标**：TTFT（Time To First Token）、TPS（Tokens Per Second）和 ITL（Inter-Token Latency）。目标值要根据产品交互、网络和模型基线制定，不能把 500ms 当所有系统的统一 SLA。
 
 **优化手段**：
 - **模型分级/路由**：简单意图走小模型，复杂走大模型。
@@ -2673,16 +2676,14 @@ Action: finish[答案]
 **手段**：Prompt 压缩、RAG 精准检索、缓存、模型分层、摘要记忆、批处理、最大步数限制。
 
 **成本优化组合拳（业界共识优先级）**：
-1. **Prompt Caching**：长 system prompt 重复调用，input token 降 ~90%（Anthropic 写入 1.25x/读取 0.1x）。
-2. **结果缓存**：相同参数查询复用，命中率 20-40%。
-3. **模型路由**：简单任务小模型，复杂任务大模型，成本降 30-50%。
-4. **Batch API**：离线任务降 50%（OpenAI/Anthropic，24h 窗口，独立速率池）。
-5. **Prompt 压缩**：LLMLingua 压缩上下文（20x）。
+1. **Prompt Caching**：稳定前缀可复用，但折扣、TTL 和最小 Token 随 Provider 与版本变化。
+2. **结果缓存**：相同参数和数据版本复用，命中率按真实流量测。
+3. **模型路由**：简单任务小模型，复杂任务大模型，同时监控误路由带来的质量损失。
+4. **Batch API**：离线任务可使用批处理折扣和独立配额，价格与完成窗口按 Provider 当前文档确认。
+5. **Prompt 压缩**：LLMLingua 等方案可减少上下文，但论文压缩倍数不能直接等同于业务无损收益。
 6. **max_tokens 上限**：防单次超额。
 
-叠加后总成本可降至原来的 1/3-1/5。
-
-**Anthropic Contextual Retrieval 成本**：上下文化成本 $1.02/百万文档 token（靠 Prompt Caching）。
+多种手段不能把各自最佳百分比直接相乘；必须在同一质量门槛下测总费用、重试和人工返工。
 
 **多 Agent 成本模型**：总成本=Σ(各 Agent 执行成本)+Σ(通信成本)。多 Agent 用 ~15x 聊天 token，单 Agent ~4x。升级 Sonnet 4 比在 Sonnet 3.7 翻倍 token 预算提升更大——"买更好模型"有时比"买更多 token"划算。
 
@@ -3029,7 +3030,7 @@ Action: finish[答案]
 
 **eval-driven 迭代**：prompt 变更用流量实验 A/B 决策不靠感觉。每次改动在 eval set 跑分。
 
-**易追问点**：Prompt 优化和模型升级哪个更重要？答：视情况——模型升级提升能力上限，prompt 优化逼近上限。先优化 prompt 榨干当前模型（成本低），再考虑换更强模型。同一模型不同 prompt 效果可差 20-50%，说明 prompt 优化空间常被低估。
+**易追问点**：Prompt 优化和模型升级哪个更重要？答：根据失败类型选择，并用同一任务集对比；上下文与约束问题改 Prompt/Harness，基础能力不足再升级模型。
 
 ### 138. 如何通过模型选择来优化性能？
 
@@ -3039,7 +3040,7 @@ Action: finish[答案]
 
 **模型分级**：前沿大（GPT-4o/o3、Claude Opus）复杂推理开放任务；中等（Claude Sonnet、GPT-4o）通用主力；小快（Haiku/Mini/Flash、7B 开源）简单任务高并发；推理模型（o1/o3、R1）数学/代码/科学。
 
-**路由策略**：规则集（按任务类型/复杂度路由）、轻量分类器（小模型分类再路由）、LLM 路由（用 LLM 判断该用哪个模型）。工具：LiteLLM Router、RouteLLM。收益：成本降 30-60%，质量不明显降。
+**路由策略**：规则集、轻量分类器或 LLM 路由。工具包括 LiteLLM Router、RouteLLM。收益取决于流量分布和误路由率，必须联合比较质量、延迟和真实费用。
 
 **推理模型分流**：o1/R1 类"思考模型"在复杂推理上拉开差距但贵且慢；普通任务用快模型+复杂任务路由到推理模型（cascading/routing）成为趋势。
 
@@ -3513,7 +3514,7 @@ Action: finish[答案]
 
 **优化手段**：上下文压缩、减少无效步骤、模型路由、缓存、批处理、限制重试、改进检索。
 
-**成本优化组合拳（业界共识优先级）**：Prompt Caching（长 system prompt 重复调用 input token 降 ~90%）→结果缓存（命中率 20-40%）→模型路由（简单任务小模型成本降 30-50%）→Batch API（离线任务降 50%）→Prompt 压缩（LLMLingua 20x）→max_tokens 上限。叠加后总成本可降至原来的 1/3-1/5。
+**成本优化组合拳**：先删除无用上下文，再评估 Prompt Caching、精确结果缓存、模型路由、离线 Batch、Prompt 压缩和输出上限。折扣、命中率和压缩收益都与 Provider、流量和质量门槛有关，不能把多个论文或产品数字直接相乘后承诺总降幅。
 
 **减少无效步骤**：更好的规划减少无效工具调用；step limit 防死循环烧 token；满意度阈值防"追求完美不停"。
 
@@ -3527,7 +3528,7 @@ Action: finish[答案]
 
 **方法**：先拆解 trace 定位模型、工具、检索或网络瓶颈。常用优化是并行化、流式输出、缓存、小模型路由、异步任务。
 
-**关键指标**：TTFT（首 token 延迟 <500ms 目标）、TPS（生成速度）、ITL（token 间隔均匀）。
+**关键指标**：TTFT、TPS、ITL，以及工具和检索各阶段耗时。目标值按业务交互和当前基线设定，不使用统一 500ms 口号。
 
 **优化手段**：模型分级/路由（简单意图走小模型）、缓存（精确+语义）、Prompt 压缩（LLMLingua 20x）、Speculative Decoding（小模型猜+大模型验 2-3x）、流式输出（降 TTFT）、并行工具调用（sum→max）、KV Cache 复用。
 
@@ -3576,7 +3577,7 @@ Action: finish[答案]
 
 **状态持久化**：checkpoint 持久化，失败可从检查点恢复而非全量重来。LangGraph checkpointer 是标准实现。
 
-**监控告警**：成功率连续 5 分钟低于 90%→紧急告警；P99 延迟超 SLA→警告；成本超日预算 80%→提醒。告警分级（紧急/警告/信息）。
+**监控告警**：围绕成功率、P99、错误预算、成本预算和队列积压设置分级告警；具体窗口和阈值由历史基线、SLO 和误报成本决定，不能把示例阈值当通用配置。
 
 **易追问点**：Agent 稳定性最容易被忽略的是什么？答：状态持久化——Agent 有状态，崩溃后状态丢失是"Agent 大忌"。需 checkpoint 持久化支持恢复、回放和审计。无状态 Web 服务可直接横向扩，Agent 需状态外置。
 
@@ -3634,13 +3635,13 @@ Action: finish[答案]
 
 **可观测性三支柱**：Metrics（系统健康）、Traces（请求为何这样）、Logs（此刻发生了什么）。GenAI 语义约定标准化 LLM 属性。
 
-**成本优化组合拳**：Prompt Caching→结果缓存→模型路由→Batch API→Prompt 压缩→max_tokens。叠加后成本降至 1/3-1/5。
+**成本优化组合拳**：Prompt Caching→结果缓存→模型路由→Batch API→Prompt 压缩→max_tokens。每一步都要在相同质量门槛下单独做消融，不能预设叠加后的固定降幅。
 
 **安全纵深防御**：输入 guardrail→权限控制→工具执行拦截→输出 guardrail→审计 trace。没有 100% 可靠防御必须纵深。
 
 **评估闭环**：线上失败 trace→脱敏标注→离线评测集→eval runs→优化→线上回归（数据飞轮）。
 
-**易追问点**：生产级 Agent 和 Demo 的核心差距？答：能不能在出问题时快速发现、定位和恢复。可观测性是最被低估的维度——每个请求要有 trace_id 贯穿。安全上两个重点：速率限制（防成本刷爆）和输入验证（防注入）。上线前验收：成功率>95%、P95 延迟在 SLA 内、错误处理覆盖、成本预算合理、告警能触发、日志可重现执行链路。
+**易追问点**：生产级 Agent 和 Demo 的核心差距？答：能否在出问题时发现、定位和恢复。每个请求要有 trace_id，权限、预算和副作用可控。上线门槛包括任务质量达到业务阈值、延迟在约定 SLA 内、故障与回滚演练通过、成本和告警可用；阈值按业务定，不统一写 95%。
 
 ## 12. 开放性问题
 
@@ -3718,7 +3719,7 @@ Action: finish[答案]
 
 **瓶颈**：长程可靠性、可评估性、安全边界、记忆质量、成本、工具执行稳定性。不是单纯换更大模型就能解决。
 
-**错误级联量化**：Agent 任务成功率随步数指数衰减——5 步 ~77%、10 步 ~50-60%、20 步 ~30-40%、50 步以上 <20%。这是”多步推理可靠性”是核心瓶颈的数学依据。SWE-bench 2024 SOTA 从 ~20% 升至 50%+ 是可靠性突破标志。
+**错误级联**：多步任务中，只要每一步都存在失败概率，整体成功率通常会随步骤增加而下降；但步骤并非独立同分布，不应套一组通用百分比。应按自己的 Trace 分析规划、工具、状态和恢复各阶段失败率。
 
 **长上下文”利用率悬崖”**：虽 context window 达百万级，但 Needle-in-Haystack 显示长 context 检索能力超长时下降；有效利用率 200K 窗口实际可靠利用往往在 32-64K；位置偏差（lost-in-the-middle，Liu et al. arXiv:2307.03172）。这是”长 context 不等于长记忆”根因。
 
@@ -3742,7 +3743,7 @@ Action: finish[答案]
 
 **可观测性栈**：Trace（LangSmith/Langfuse/Arize Phoenix）、Metrics（Prometheus+Grafana）、Log（ELK/Loki）、Eval（Braintrust/Promptfoo）、成本（Helicone）。多 Agent 可观测性需求远超单体——从第一天就建是经验共识。
 
-**成本优化实测优先级**：Prompt Caching→结果缓存→模型路由→Batch API→Prompt 压缩→max_tokens。叠加后总成本降至 1/3-1/5。
+**成本优化实测优先级**：Prompt Caching→结果缓存→模型路由→Batch API→Prompt 压缩→max_tokens。记录每一步的质量、延迟和真实账单，不能引用别的系统的最佳降幅作为自己的结果。
 
 **易追问点**：如果重新来过你会改变什么设计决策？答：两点——①监控从第一天就做而非出问题后补（多 Agent 可观测性需求和单体完全不同后补改造成本高）；②分层 Prompt 管理（早期各 Agent prompt 各自维护版本混乱，后来统一到 prompt registry 有版本有 review 有回滚应一开始就建）。
 
@@ -3758,7 +3759,7 @@ Action: finish[答案]
 
 **”是否用框架”决策**：原型/Demo→LangChain/LlamaIndex 快速搭；标准 RAG→LlamaIndex 或直接 SDK；生产可控 Agent→LangGraph 或自研核心；多 Agent 协作→AutoGen/CrewAI；强类型→Pydantic AI；无代码→Dify/Coze；极致性能/定制→自研+SDK。
 
-**框架隐藏成本**：抽象泄漏（出 bug 难定位）、版本动荡（LangChain v0.1→v0.3 不兼容）、性能开销（10-25% 额外 token）、锁定风险、学习曲线。对策：适配器层隔离。
+**框架隐藏成本**：抽象泄漏、版本变化、额外序列化与上下文、锁定风险和学习曲线。用适配器隔离，并通过 Trace 测实际 Token、延迟和错误定位成本。
 
 **易追问点**：框架选错了怎么迁移？答：如果一开始做了适配层迁移相对可控（换适配器业务不动）；如果直接耦合框架 API 迁移成本高。经验：选型初期多花 3 天调研原型验证比后期迁移省 3 个月。特别要测错误处理和可观测性——demo 阶段看不出来生产里最先暴露。
 
@@ -3776,7 +3777,7 @@ Action: finish[答案]
 
 **混合架构（生产主流）**：主流程 Workflow（可预测可审计）+ 模糊判断节点 LLM（路由/意图识别/异常处理）+ 开放任务段 Agent（多步探索）+ 高风险动作 HITL。分层让可靠性和灵活性兼顾。
 
-**可靠性对比**：Workflow 可预测性高（99.9%+）/可测试性高；Agent 可预测性低（85-95%）但适应性高。成本 Workflow 低 Agent 高。
+**可靠性对比**：Workflow 路径固定，通常更容易测试和复现；Agent 适应性更强，但结果和工具轨迹更不确定。具体可靠性只能由任务集与运行环境验证，不能给二者套固定百分比。
 
 **易追问点**：怎么判断一个任务应该用工作流还是 Agent？答：三个问题——①能不能提前穷举路径？②路径选错代价高吗？③异常是否超出规则范围？三个都 yes 才真正需要 Agent，否则 Workflow+少量 LLM 节点更保险。
 
@@ -3933,13 +3934,13 @@ Action: finish[答案]
 
 **并发模式选型**：全部完成才继续→gather（任一失败即停用 gather 默认+抛异常，部分失败不影响用 `return_exceptions=True`）；谁先完成用谁→as_completed/wait(FIRST_COMPLETED)；结构化需严格异常处理→TaskGroup（3.11+推荐替代 gather）；需限流→Semaphore 包裹上述任意。
 
-**成本优化**：Prompt Caching（长 system prompt 重复调用 input token 降 ~90%）、Batch API（离线任务降 50%）、模型路由（简单任务小模型成本降 30-50%）。
+**成本优化**：稳定前缀评估 Prompt Caching，离线任务评估 Batch API，简单任务评估小模型路由；折扣和节省比例按 Provider 当前价格与自己的流量测算。
 
 **工程陷阱**：未限流（成百上千并发被限流/封号必须 Semaphore）；未处理异常（gather 默认一个失败全抛用 return_exceptions=True 或 TaskGroup）；连接池耗尽（`httpx.AsyncClient` 复用连接设 `limits=httpx.Limits(max_connections=N)`）；同步阻塞混入（async 里调同步 SDK 卡死循环用 AsyncX 版或 to_thread）；取消未等待（cancel 后不 await 后台仍在跑）。
 
 **多模型竞速（race）模式**：同时问多个模型谁先回用谁（首字节优先），或同时问便宜+贵模型便宜模型够好就用便宜的。用 `asyncio.wait(tasks, return_when=FIRST_COMPLETED)` + cancel 其余。
 
-**易追问点**：并发 LLM 调用的成本控制怎么做？答：三层——Semaphore 限并发数防瞬时流量打爆；请求级 max_tokens 上限防单次超额；会话级记录累计消耗超阈值拒绝新请求。Prompt Caching 可在 SDK 层直接启用高频重复 system prompt 省 90% input token。
+**易追问点**：并发 LLM 调用的成本控制怎么做？答：Semaphore 限并发；请求级限制输出和工具次数；会话或租户级累计预算；稳定前缀再评估 Prompt Caching。缓存能省多少看命中率和 Provider 计价。
 
 ### 189. 什么是 GIL？对 Agent 并发有什么影响？
 
@@ -4051,7 +4052,7 @@ Action: finish[答案]
 
 **流式 Token 累积与解析**：文本累积（每 chunk delta.content 拼接）；工具调用参数分片（tool_use 的 input 跨多 chunk 返回需累积完整 JSON 后再 json.loads 不能提前解析）；OpenAI 流式 tool call `delta.tool_calls[i].function.arguments` 增量字符串按 index 累积；Anthropic `input_json_delta` 事件累积 partial_json。生产建议用 SDK 提供的流式聚合工具（如 `stream.get_final_message()`）不要自己手写增量 JSON 解析。
 
-**关键体验指标**：TTFT（Time To First Token 首字延迟 <500ms 目标）、TPS（Tokens Per Second 生成速度）、ITL（Inter-Token Latency token 间隔均匀）。
+**关键体验指标**：TTFT、TPS 和 ITL；目标值按产品体验、模型与网络基线制定。
 
 **Agent 场景流式策略**：最终回答生成→是（面向用户体验优先）；工具调用参数→否（需完整参数才能执行）；ReAct Thought→可选（调试用流式生产非流式）；规划/反思→否（需完整结果决策）；多轮编排→否（内部步骤）。常见模式：内部步骤非流式最终输出流式兼顾体验与可靠性。
 
@@ -4596,7 +4597,7 @@ Harness 是"智能决策"和"工程执行"的胶水层。
 
 **四大责任**：执行控制（Agent Loop/step limit/终止条件/超时）、上下文组装（决定每轮 LLM 看到什么）、工具治理（schema 管理/调用/重试/异常/并发）、安全观测（权限/审批/沙箱/trace/成本统计/审计）。
 
-**核心认知**：Agent 能力不只取决于模型也取决于 Harness——"模型决定上限，Harness 决定下限"。同一模型不同 Harness 可让任务成功率从 30% 到 80%+。
+**核心认知**：Agent 能力不只取决于模型也取决于 Harness。模型负责单步判断，Harness 决定上下文、工具、权限、状态、预算和失败恢复；没有固定任务集与对照实验时，不报具体提升百分比。
 
 **类似概念不同叫法**：Anthropic/业界通用 Harness/Agent Runtime；OpenAI Assistants API/Agent SDK runtime；学术 Agent environment/scaffolding；LangChain AgentExecutor/LangGraph runtime。
 
@@ -4635,7 +4636,7 @@ Agent Runtime（运行时环境，最外层）
 
 **答：**
 
-**业界共识**："模型决定上限，Harness 决定下限"。同一模型不同 Harness 可让任务成功率从 30% 到 80%+。原因：模型只做单步决策，多步任务的成败系于 Harness 的控制质量。
+**工程判断**：可以用“模型影响推理上限，Harness 决定系统是否可控”来帮助理解，但它不是一个带固定百分比的定律。模型只做单步决策，多步任务还取决于 Harness 的上下文、工具、状态和恢复质量。
 
 **Harness 影响能力的具体维度**：
 
@@ -4656,7 +4657,7 @@ Agent Runtime（运行时环境，最外层）
 
 **模型升级不能替代的 Harness 职责**：即使最强模型仍需 Harness 控制权限边界（模型不会自我设限）、预算/成本上限、工具失败的重试/replan、审计与 trace、HITL 拦截、终止条件。这些是工程约束非智能问题模型升级不解决。
 
-**Harness 优化典型收益**：上下文组装优化→TSR +10-20%；工具 schema 改进→工具准确率 +15%；加 step limit+反思→死循环消除成本 -30%；HITL 拦截→高风险事故归零；限流重试→稳定性 99%+。
+**Harness 优化如何证明收益**：固定模型、任务集、工具版本和预算，只改变一项 Harness 策略；同时比较任务成功率、工具错误率、平均步数、成本、延迟和安全拦截。没有实际实验报告时只讲验证方法，不给“提升多少、事故归零、稳定性多少”的数字。
 
 **易追问点**：如何证明 Harness 优化有效？答：用相同模型、相同任务集做 A/B，对比 TSR、平均步数、工具错误率、成本和安全拦截率。
 
@@ -5071,3 +5072,47 @@ Agent Runtime（运行时环境，最外层）
 **Agent eval 多维评估**：不只看最终答案还评——工具选择正确率、handoff 合理性、安全违规次数、数据外发次数、不必要循环次数、routing 回归。这些过程指标只有 trace+graders 能评。
 
 **易追问点**：为什么 Agent eval 不能只看最终答案？答：因为 Agent 的风险常发生在过程中。最终答案可能正确，但中间发生了越权读取、错误 handoff、危险工具调用、数据外发或不必要循环，必须通过 trace 和 graders 才能评出来。
+
+## 16. 实战边界补充
+
+### 241. 什么是 SDD？你真的用过完整的 Spec-Driven Development 吗？
+
+**答：**
+
+**口语化回答：**
+
+> 我理解的 SDD 不是“先写一篇文档再让 AI 生成代码”，而是把需求、约束、接口、失败语义和验收标准变成可以追踪的规格，让实现、测试和发布都能回到同一份合同。我没有完整使用过某个品牌化 SDD 平台，所以不会说自己熟练使用某个产品。
+>
+> 我实际做过的规格驱动方式包括：先写状态和接口契约，再拆任务；把“引用不能伪造”“校验失败进入 Draft”“增量更新不能混合版本”这类要求落成测试；重要取舍保留 ADR。下一步还可以给关键 Spec 编号，关联设计、代码、测试、评测和发布验收。这样说的是实际工作方法，不是追热点贴标签。
+
+### 242. CodeWiki 在 Brownfield SDD 中能做什么，不能做什么？
+
+**答：**
+
+> CodeWiki 能从已有代码中提取符号、调用、引用、导入、配置和源码位置，帮助工程师建立当前系统事实，做影响分析，并为新 Spec 提供可引用的实现背景。它特别适合 Brownfield 项目里“文档落后、没人敢改”的第一步。
+>
+> 但它不能从代码反推出完整业务意图、历史决策和未写下来的合规要求。生成的 Wiki 也不是新的事实源，只是带证据的辅助材料。正确流程是：代码事实由 CodeWiki 提供，业务目标由产品和领域专家确认，新的 Spec 明确期望变化，再用测试和 Review 验收。不能把“从旧代码生成说明”说成已经完成需求规格。
+
+### 243. Agent Harness 和 Hermes 是什么关系？
+
+**答：**
+
+> Harness 是抽象的运行控制层，负责 Agent Loop、上下文组装、工具治理、状态、权限、预算、终止和 Trace；Hermes 是当前项目接入的一种具体宿主或运行入口。两者不是同级产品对比。
+>
+> 在 Agent Memory 里，TdaiCore 通过适配层接到 Hermes 的 HTTP 生命周期，也可以接 OpenClaw 或 Standalone。换宿主时，Capture、Recall、Offload 和 Session 生命周期的核心逻辑尽量复用；宿主仍负责把正确事件和身份传进来。简单说，Harness 是机制，Hermes 是承载或调用这套机制的具体环境之一。
+
+### 244. Text-to-SQL 的 Schema Linking 怎么做？AI 周报是不是 Text-to-SQL？
+
+**答：**
+
+> Schema Linking 是把用户问题里的业务概念，对齐到允许访问的表、字段、关系、枚举和指标口径。生产上先维护表字段说明、外键、业务同义词、样例值和权限元数据；再根据问题召回少量候选 Schema，做实体和值匹配，最后才生成 SQL。执行前还要做 AST 白名单、只读账号、扫描成本、超时和审计。
+>
+> 当前 AI 周报不是 Text-to-SQL。它的统计 SQL 和处理逻辑是程序预先写好的，模型只负责对确定性结果做文字分析。Schema Linking 是面试里的扩展设计题，不能反过来说周报已经让模型生成并执行 SQL。
+
+### 245. AI Coding 从需求到上线的完整流程是什么？怎么证明不是把代码全交给模型？
+
+**答：**
+
+> 我先把需求写成边界和验收条件，再让 AI 帮我做代码检索、方案比较或第一版补丁。生成结果必须经过我自己的源码核对、最小改动审查、单元和集成测试、静态检查以及 PR Review；涉及数据、权限和迁移时，还要补灰度、回滚和监控。失败时我会根据测试和 Trace 定位，不会不断换 Prompt 碰运气。
+>
+> 面试里我会拿一个真实变更讲清楚：需求是什么，AI 给了什么草稿，我改了哪些关键点，测试暴露了什么问题，最后谁 Review、怎么发布。AI 是效率工具，需求判断、架构取舍、验收和线上责任都在我。代码占比不是最重要的证据，能不能解释每个关键决策和失败分支才是。

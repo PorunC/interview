@@ -1,29 +1,29 @@
 # AI Agent Backend Interview Deep-Dive Preparation: From Project Experience to System Design
 
-> Scope: English practice for the three in-house projects. It is a speaking aid, not a separate source of project facts. Use the current Chinese project documents linked from `../README.md` as the baseline.
+> Evidence boundary: this is an English speaking aid, not an independent source of project facts. All three projects are treated as in-house projects. Source-level behavior comes from the current Chinese project analyses and repository reports linked from `../README.md`. WideSearch and PersonaMem numbers are benchmark results for their recorded configurations, not production-wide averages. Production tenure, traffic, adoption, operational timelines, and personal ownership still require internal evidence and must not be inferred from this document. Every Agent-engine, rollout, failure-response, and scale-out section is a scenario/design answer unless it explicitly cites a source-verified implementation.
 
 > Target Role: Backend Development Engineer — AI Agent Track  
-> How to Use: This is not a resume recap. It's an interview deep-dive talking-point library. Every question is prepared with: "Context — Design — Trade-offs — Results — Follow-up Points," so you can present each project as a production-ready Agent backend system.
+> How to Use: This is not a resume recap. Separate what the code currently does, what a stored benchmark measured, and what you would design for a hypothetical production scenario. Do not turn a design drill into a personal outage story.
 
 ## 0. Interview Main Thread
 
 These projects weave together into one clear capability thread:
 
-1. AI Weekly Report System: Putting LLMs into production business workflows, solving multi-source data ingestion, retry/fault tolerance, transactional consistency, and stable production delivery.
+1. AI Weekly Report System: Applying LLMs to an in-house business workflow, with multi-source ingestion, bounded retry, transactional consistency, and batch-state control.
 2. CodeWiki: Anchoring LLMs on ASTs, code graphs, GraphRAG, and source-reference verification to solve reliability in code understanding and documentation generation.
-3. TencentDB Agent Memory: Addressing long-running Agent tasks with long-term memory, context compression, tool-log traceability, token cost, and runtime stability.
+3. In-House Agent Memory: Addressing long-running Agent tasks with long-term memory, context compression, tool-log traceability, token cost, and runtime stability.
 4. Agent Execution Engine Design: Abstracting the above experience into a graph state machine, tool runtime, Human-in-the-loop, observability, and recoverability architecture.
 
 In the interview, don't just say "I called a large model." Emphasize repeatedly:
 
 - I treat the LLM as an unreliable reasoning component within a system, not the entire system.
 - Controllable facts, state, tools, memory, evaluation, traceability, and observability are what make Agent engineering real.
-- I've gone from 0 to 1, and I've also done post-launch cost, latency, and stability governance.
+- I can explain how I would govern cost, latency, and stability after launch; I only claim post-launch events that can be supported by internal records.
 
 ```mermaid
 flowchart LR
     A["AI Weekly Report<br/>LLM Business Automation"] --> B["CodeWiki<br/>AST + GraphRAG + Doc Generation"]
-    B --> C["Agent Memory<br/>Long-term Memory + Context Compression"]
+    B --> C["In-House Agent Memory<br/>Long-term Memory + Context Compression"]
     C --> D["Agent Execution Engine<br/>Graph State Machine + Tool Runtime"]
     D --> E["Production Governance<br/>Cost / Latency / Stability"]
 ```
@@ -38,45 +38,45 @@ flowchart LR
 
 Hello, my name is Chen Bairun. I have a bachelor's degree in Software Engineering and 3 years of backend development experience, recently focused on LLM engineering and AI Agent infrastructure. On the tech stack side, I primarily use Python/FastAPI for backend services and data pipelines, and also TypeScript/Node for Agent plugins, Gateway, tool runtime, and frontend engineering.
 
-I've worked on three closely related projects. The first is an internal AI Weekly Report system for a bank, where I was responsible end-to-end for multi-source data collection, cleaning, LLM segmented analysis, retry/fault tolerance, result persistence, and push delivery. It compressed what was originally 8 to 10 hours of manual weekly reporting down to about 20 minutes.
+I've worked on three closely related in-house projects. The first is an AI Weekly Report system for a bank. The implementation covers multi-source collection, cleaning, segmented LLM analysis, bounded retry, result persistence, and push delivery. Earlier project material estimates that the manual workflow took 8 to 10 hours and that an automated run took about 20 minutes, but I would quote those numbers only after checking their measurement basis and confirming my exact RACI.
 
 The second is CodeWiki, a code intelligence platform based on Python/FastAPI and TypeScript/React, implementing multi-language AST parsing, a code dependency graph, GraphRAG retrieval, source-level documentation generation, and multiple Agent access methods including CLI, HTTP API, and MCP. It solves the problem of how Agents or developers can reliably understand large code repositories.
 
-What best represents my fit for this role is TencentDB Agent Memory. I designed from scratch a tiered L0-to-L3 memory architecture, managing raw conversations, structured facts, scenario memories, and long-term personas in layers. On the retrieval side, I used vector search, BM25, and Hybrid RRF fusion recall. I also implemented tool-log context offloading, compressing long task execution processes into traceable Mermaid state diagrams, so Agents can continue planning and backtracking at low token cost. This project ultimately reduced token consumption by about 61%, improved task pass rate by about 52% relatively, and raised long-term memory accuracy from 48% to 76%.
+What best represents my fit for this role is the In-House Agent Memory project. Its current implementation has a tiered L0-to-L3 memory architecture for raw conversations, atomic memories, scenarios, and Persona. Retrieval combines vector search, BM25, and Hybrid RRF, while the Context Offload path stores large tool results outside the prompt and keeps Mermaid navigation plus references in the working context. In the recorded WideSearch configuration, tokens went from 221.31M to 85.64M and pass rate went from 33% to 50%. In the recorded PersonaMem configuration, final-answer accuracy went from 48% to 76%. Those are two scoped offline benchmark results, not overall production outcomes, and I should describe my personal ownership only after confirming the RACI.
 
-So I've not only built business systems that call LLMs, but I've also actually built Agent memory, tools, retrieval, context management, and engineering stability infrastructure.
+Together, these projects let me discuss more than model calls: I can go into memory, retrieval, tool-result offloading, context management, state, and engineering trade-offs. I would still separate source-verified implementation from my personal contribution in the final interview wording.
 
 **Follow-up Points:**
 
-- If asked "which experience best matches this role": answer Agent Memory, because it directly maps to memory, tool logs, long-running tasks, cost, and stability.
+- If asked "which experience best matches this role": answer In-House Agent Memory, because it directly maps to memory, tool logs, long-running tasks, cost, and stability.
 - If asked "how does your backend capability show": answer with state persistence, async scheduling, storage adapter, interface abstraction, observability, and fault recovery — not just prompt writing.
 
 ---
 
-# 2. Project 1: TencentDB Agent Memory
+# 2. Project 1: In-House Agent Memory
 
 ## 2.1 End-to-End Project Walkthrough
 
 **Typical Question:**  
-Can you walk through the Agent Memory system end-to-end — background, goals, overall architecture, key modules you were responsible for, and final results?
+Can you walk through the In-House Agent Memory system end-to-end — background, goals, architecture, current implementation, and benchmark results?
 
 **Interview Answer:**
 
-This project is called TencentDB Agent Memory. It originated because we found two obvious problems when using AI Agents for long-running tasks in practice.
+This is our In-House Agent Memory project. It addresses two recurring problems in long-running Agent tasks.
 
 First, tool call logs, search results, and code snippets would quickly blow up the context window. Reasoning quality degraded, and costs spiked. Second, Agents had no stable memory across sessions — users had to repeat their SOPs, project background, preferences, and historical issues every time.
 
-My goal was not to build a chat log search tool, but a set of memory infrastructure for the Agent runtime. On one hand, supporting long-term memory so the Agent could extract facts, scenarios, and user personas from historical conversations. On the other, supporting short-term memory compression — offloading tool logs from long tasks and keeping only structured state in context. It also needed to plug into different Agent hosts like OpenClaw and Hermes.
+The design goal was not to build a chat-log search tool, but memory infrastructure for the Agent runtime. One track supports long-term memory by extracting facts, scenes, and Persona from historical conversations. The other governs short-term context by offloading large tool results and keeping a smaller working state in the prompt. The implementation also supports different host entry points such as OpenClaw and the Gateway/Hermes path.
 
 The overall architecture has two main tracks:
 
-The first is the long-term memory track, using tiered L0 through L3. L0 is raw conversation, preserving complete evidence. L1 is structured atomic facts. L2 aggregates related facts into scenarios. L3 is the long-term Persona or user profile. Retrieval combines vector search, BM25 full-text search, and Hybrid RRF fusion ranking.
+The first is the long-term memory track, using tiered L0 through L3. L0 keeps captured conversation evidence. L1 contains structured atomic memories. L2 aggregates related memories into scenes. L3 is the long-term Persona. Retrieval combines vector search, BM25 full-text search, and Hybrid RRF fusion ranking.
 
-The second is the short-term context compression track. After a tool call, the full log is offloaded to external storage, e.g., `refs/*.md`. Then a step summary is extracted, and finally a lightweight Mermaid task state diagram is generated. Going forward, the Agent only needs to see the task diagram — knowing the task objective, phases, failed nodes, and traceable references.
+The second is the short-term context-governance track. After a tool call, the full result is offloaded to external storage such as `refs/*.md`, a compact entry is created, and a lightweight Mermaid task diagram provides navigation. The Agent still needs the current request, system instructions, working messages, and selected summaries; the diagram is a compact task index, not the whole reasoning context.
 
-I was primarily responsible for end-to-end design and core implementation: first, the host-neutral `TdaiCore`, which isolates differences across hosts like OpenClaw and Hermes; second, the long-term memory pipeline, including L0 recording, L1 extraction and dedup, L2 scenario generation, L3 Persona generation and recall; third, the context offloading module, including tool-log capture, compression injection before prompt building, Mermaid state diagrams, node_id traceback, and token threshold control; fourth, the engineering side, including Gateway, plugin adaptation, async scheduling, session cleanup, metrics reporting, and performance timing.
+The current codebase has four major areas I can explain in detail: the host-neutral `TdaiCore`; the long-term memory pipeline from L0 capture through L1 extraction, L2 scenes, L3 Persona, and recall; the Context Offload path with tool-result capture, prompt-time compression, Mermaid navigation, `node_id` lookup, and token thresholds; and the surrounding Gateway, host adapters, async scheduling, cleanup, and reporting code. That describes the implementation surface. It does not by itself prove that I personally owned every module, so I would map my actual contribution to the RACI before using an ownership claim.
 
-In terms of results, short-term memory compression achieved up to 61.38% token reduction in the WideSearch scenario, with a 51.52% relative improvement in task pass rate. For long-term memory, final answer accuracy on the test dataset improved from 48% to 76%.
+For measured results, I keep the scope explicit. In one recorded WideSearch configuration, token use decreased by 61.38% and pass rate improved from 33% to 50%, which is a 51.52% relative increase. In one recorded PersonaMem configuration, final-answer accuracy moved from 48% to 76%. These numbers describe those stored benchmark runs; they are not production-wide averages and do not isolate the contribution of each component.
 
 ```mermaid
 flowchart TD
@@ -108,25 +108,25 @@ What exactly does each L0–L3 layer do? Why not just use a single vector databa
 
 The core philosophy of L0–L3 is: lower layers preserve evidence; higher layers preserve structure. Lower layers are responsible for traceability; higher layers are responsible for injectability and decision support.
 
-L0 is the raw conversation layer, responsible for fully recording interactions between the user and Agent — including user questions, assistant answers, key context, and timestamps. It solves the evidence preservation problem. Because L1, L2, and L3 are all LLM-extracted or LLM-summarized, without L0, any memory that is extracted incorrectly or missed is very hard to correct later.
+L0 is the raw-conversation layer. It appends captured user and assistant messages, IDs, session context, and timestamps, giving the higher layers an evidence base. "Raw" here does not mean a forensic byte-for-byte transcript: the capture path removes known framework-injected blocks and noise. L1, L2, and L3 all involve model extraction or summarization, so retaining the captured L0 text is important for diagnosis and reprocessing.
 
-L1 is the atomic fact layer, extracting structured memories from L0 — such as user preferences, project conventions, tool usage habits, and task conclusions. It solves the problem of extracting searchable facts from raw conversations. L1 performs quality filtering, type normalization, deduplication, and conflict detection to prevent meaningless chatter, duplicate content, or contradictory content from entering the system.
+L1 is the atomic-memory layer, extracting structured `persona`, `episodic`, and `instruction` records from new L0 messages. The prompt filters temporary requests and asks for structured output. Before writing a new record to the online store, the pipeline retrieves similar candidates and asks the model for a `store`, `skip`, `update`, or `merge` action. That reduces noise and duplication, but it is not deterministic fact validation or a complete conflict-governance system.
 
 L2 is the scenario layer, organizing multiple related L1 facts into a scenario block — for example, "development conventions for a certain project" or "SOP for a certain type of production issue." It solves the problem of fragmented memories lacking context. A single fact may be very short, but when an Agent is actually executing a task, it needs to understand the relationships among a group of facts.
 
-L3 is the Persona or long-term profile layer, responsible for generating stable long-term preferences — such as the user's tech stack, communication style, common task types, and long-term SOPs. It solves the problem of stable priors needed in every round of conversation.
+L3 is the Persona or long-term-profile layer. Its prompt is intended to summarize relatively durable preferences such as tech stack and communication style from changed scenes and the existing Persona. It supplies a compact prior, but current durability is a soft prompt goal rather than a hard stability field or gate.
 
 Why not use a single vector database? Because vector databases are good for similar-text retrieval, but they don't natively understand hierarchy, freshness, conflicts, and evidence chains. They might recall a few similar snippets, but they don't know which is the latest, which belong to the same scenario, which contradict each other, or whether to give the Agent a single fact, a scenario, or a long-term preference.
 
 Why not use a global summary? Global summaries are very token-efficient, but they are irreversible, prone to over-compression, and become increasingly chaotic over time. If an early summary is wrong, the error keeps being inherited. Once details are summarized away, the Agent cannot retrieve them when it needs to verify evidence.
 
-So my judgment at the time was that Agent memory cannot just be "store and search." It must also have lifecycles of extraction, aggregation, compression, recall, provenance tracing, and updating.
+The design principle is that Agent memory cannot stop at "store and search." It also needs extraction, aggregation, recall, update, and evidence-oriented diagnosis, while Context Offload separately handles the active prompt.
 
 ```mermaid
 flowchart BT
-    L0["L0 Raw Conversation<br/>Complete Evidence / Replayable"] --> L1["L1 Atomic Facts<br/>Searchable / Deduplicable / Conflict-detectable"]
+    L0["L0 Captured Conversation<br/>Evidence Base / Reprocessable"] --> L1["L1 Atomic Memories<br/>Searchable / Candidate-deduplicated"]
     L1 --> L2["L2 Scenario Blocks<br/>Context Organization / SOP / Project Background"]
-    L2 --> L3["L3 Persona<br/>Stable Preferences / Long-term Profile"]
+    L2 --> L3["L3 Persona<br/>Intended Durable Profile"]
 
     L3 -. "Routine Stable Injection" .-> A["Agent Prompt"]
     L1 -. "Current-turn Precise Recall" .-> A
@@ -136,8 +136,8 @@ flowchart BT
 
 **Follow-up Points:**
 
-- If asked "how does L1 prevent dirty data": quality filtering, length/injection risk filtering, structured JSON, dedup, conflict detection.
-- If asked "difference between L2 and L3": L2 is task/scenario dimension; L3 is a cross-scenario stable profile.
+- If asked "how does L1 reduce dirty data": prompt-level noise filtering, structured output, and candidate-based `store/skip/update/merge`; then state clearly that source entailment and full conflict governance are not hard-validated today.
+- If asked "difference between L2 and L3": L2 is a scene-level Markdown abstraction; L3 is an intended cross-scene Persona, with durability enforced only through conservative prompting today.
 - If asked "when to update L3": can be triggered by new memory count, scenario changes, or time intervals; supports incremental updates.
 
 ---
@@ -181,16 +181,16 @@ flowchart LR
 
 **Follow-up Points:**
 
-- Why not use a reranker: could add one later, but RRF in v1 was low-cost, stable, and required no extra model calls.
+- Why not use a reranker: the current implementation uses RRF and therefore needs no separate ranking model. A reranker may improve relevance, but that requires a controlled quality, latency, and cost comparison; the existing material does not prove RRF is optimal.
 - Why clean the query: strip gateway metadata, base64, media markers to avoid retrieval bias.
 - How to degrade: fall back to FTS when embedding is unavailable; fall back to embedding when FTS is unavailable; inject nothing if both are unavailable.
-- How to evaluate recall quality: offline, look at final answer accuracy on test questions, whether relevant memories enter Top-K, false recall rate; online, look at user correction rate, memory tool secondary search rate, recall latency, and injection token cost.
+- How to evaluate recall quality: offline, I would measure final-answer accuracy, relevant-memory Top-K recall, incorrect injection, evidence drill-down, and token use. In an online deployment, I would instrument user correction, useful recall, drill-down, recall latency, and injection cost; I would not imply those dashboards already exist.
 
 **Strategy choices can be supplemented as follows:**
 
 - Vector cosine: suitable for natural language expressions, paraphrasing, user preferences, and SOPs — semantic memories.
 - BM25/FTS: suitable for project names, variable names, error codes, config keys, commands, API names — precise symbols.
-- Hybrid RRF: the default strategy, suitable for real-world mixed queries online; especially when a query contains both natural language and technical identifiers, it captures both semantics and keywords.
+- Hybrid RRF: the default mixed-query strategy; when a query contains both natural language and technical identifiers, the two candidate lists can complement each other. Its real quality still needs task-specific evaluation.
 
 ---
 
@@ -201,11 +201,11 @@ Long-term memory accuracy went from 48% to 76%. How was this metric evaluated?
 
 **Interview Answer:**
 
-This accuracy metric refers to the final answer accuracy on the test dataset, not pure retrieval hit rate.
+The source-backed statement is narrow: the stored PersonaMem benchmark reports final-answer accuracy moving from 48% to 76% under its recorded model, plugin, dataset, and scoring configuration. It is not a universal production accuracy number and it does not prove a particular online user population.
 
-The evaluation process: first, feed the multi-turn historical conversations from the test set into the Agent, letting the system complete L0 recording, L1 fact extraction, L2 scenario aggregation, and L3 Persona generation. Then use the test set's held-out questions to query the Agent — e.g., about user preferences, historical facts, long-term instructions. Finally, match or semantically judge the Agent's answers against the standard answers in the dataset, and compute the proportion of correct answers.
+At a high level, the benchmark feeds historical conversations through the memory pipeline, asks held-out questions, and compares final answers with the benchmark references. If I am asked for exact sample counts, category percentages, judge thresholds, or manual-review ratios, I would read them from the stored benchmark artifact rather than inventing them from memory.
 
-The baseline was roughly 48%, which improved to 76% after integrating the L0–L3 tiered memory and Hybrid Recall.
+Within that specific PersonaMem run, the baseline was 48% and the configured memory system reached 76%. I would report both the configuration and the result together.
 
 What makes this metric more meaningful to me is that it tests whether the Agent can ultimately use historical information correctly — not simply whether the vector database found a piece of text. Because in real scenarios, the value of a memory system is not "was it retrieved," but "was it injected at the right moment, at the right granularity, for the Agent."
 
@@ -215,15 +215,15 @@ flowchart TD
     Ingest --> Pipe["L0/L1/L2/L3 Memory Pipeline"]
     Pipe --> Q["Held-out Questions"]
     Q --> Ans["Agent Answer"]
-    Ans --> Judge["Standard Answer Matching / Semantic Judgment"]
+    Ans --> Judge["Recorded Benchmark Scoring"]
     Judge --> Acc["Answer Accuracy<br/>48% -> 76%"]
 ```
 
 **Follow-up Points:**
 
 - Be careful to say "final answer accuracy," not "retrieval accuracy."
-- If pressed on misjudgment risk: mention standard-answer rule matching + semantic judgment + sampled manual review.
-- If asked about online metrics: look at memory recall hits, user correction rate, search tool invocation rate, answer satisfaction.
+- If pressed on scoring risk: say the exact judge, thresholds, and review procedure must come from the stored benchmark artifact; do not invent a sampled manual-review step.
+- If asked about online metrics: say I would measure useful recall, incorrect-memory injection, user correction, original-evidence drill-down, recall latency, token cost, and task outcomes. The current benchmark does not prove that an online dashboard already exists.
 
 ---
 
@@ -234,7 +234,7 @@ When tool logs and historical messages bloat, how do you decide what to keep, co
 
 **Interview Answer:**
 
-I didn't implement compression as a one-shot summary. Instead, I built it as tiered context governance. The core principle: only keep what is essential for current reasoning in context; complete evidence must always be persisted to disk first, before deciding to replace or delete.
+The current implementation does not use a single one-shot summary. It applies tiered context governance: offloaded tool results are written to external artifacts before those tool messages are replaced, while the prompt keeps a smaller working set. Later aggressive or emergency message deletion is still lossy, so this principle must not be expanded into a claim that every deleted conversation can be recovered.
 
 After each tool call completes, `after_tool_call` captures the tool name, parameters, result, duration, and `tool_call_id`. The full raw result is written to `refs/*.md`, while simultaneously generating an `offload-<session>.jsonl` record containing the tool call summary, `result_ref`, `tool_call_id`, timestamp, and a replaceability score `score`. Later, L2 links it to a `node_id` in the Mermaid diagram.
 
@@ -244,9 +244,9 @@ The first tier is mild compression. The system uses tiktoken to compute the curr
 
 The second tier is aggressive compression. If tokens approach the aggressive threshold, e.g., 85% by default, replacing with summaries alone is no longer enough, so earlier historical message prefixes are deleted. But deletion is only removal from the current prompt, not from storage. By this point, those tool logs already have jsonl summaries, refs originals, and Mermaid node mappings.
 
-The third tier is the emergency fallback. If the context nears 95% of the context window, the system enters emergency compression, aiming to reduce to roughly 60%. At this stage, it deletes or truncates the largest non-user messages while preserving the latest user request, system prompt, current task state diagram, and essential structural information as much as possible.
+The third tier is the emergency fallback. If the context nears 95% of the context window, the system enters lossy emergency compression and aims to reduce usage to roughly 60%. The current deletion logic explicitly protects the latest real user message and tries to keep tool-call/result structure valid, but earlier user messages can still be removed. If head deletion is blocked, it can remove large non-user tool groups and may truncate oversized messages. This tier is an availability safeguard, not semantic equivalence.
 
-On-the-spot recovery relies on three types of persisted information: `state.json` records the currently active MMD file and session state; `offload-*.jsonl` saves each tool call's summary, `tool_call_id`, `node_id`, and original reference; `mmds/*.mmd` saves the Mermaid task state diagram. If the task is interrupted, the next entry loads `state.json` to retrieve the active MMD and re-injects the Mermaid diagram into context. The Agent can see the task objective, completed steps, and which node it's currently paused at. If details are needed, it can drill back into jsonl and refs based on `node_id` or `result_ref` to read the full tool log.
+On-the-spot recovery relies on three types of persisted information: `state.json` records the active MMD and session state; `offload-*.jsonl` records tool-call summaries, IDs, node mappings, and original references; `mmds/*.mmd` stores the Mermaid task navigation. On re-entry, the Agent first reloads a compact task view, then follows `node_id -> offload entry -> result_ref` only when it needs a specific tool result. This is selective recovery, not replay of the entire old prompt. `refs` preserve offloaded tool originals, but they do not guarantee that deleted ordinary conversation, wording, or local relationships can all be reconstructed.
 
 ```mermaid
 flowchart TD
@@ -272,49 +272,49 @@ flowchart TD
 - Why not just delete: need traceability; deletion is prompt-layer removal only.
 - How to avoid breaking tool_use/tool_result structural pairing: maintain tool call pairing during compression and deletion.
 - Why Mermaid: high information density, clear topological structure, readable by both LLMs and humans.
-- How to avoid impacting reasoning: current task MMD, latest user request, system prompt, and critical node_ids are preserved with priority; tool originals land in `refs` first; compressed content carries `result_ref` so the Agent can drill down and recover at any time.
+- How to limit reasoning damage: preserve the latest real user request and tool-call/result structure, keep task navigation and references where possible, and drill down to a required tool original on demand. Emergency compression is still lossy, and a missing or incorrect mapping can prevent recovery.
 - Where did 61.38% come from: compared total token consumption before and after integrating the plugin in a long-session benchmark — e.g., OpenClaw raw tokens vs. plugin-compressed tokens in the WideSearch scenario, using relative reduction.
 
 ---
 
-## 2.6 A Real Case of Sudden Token Cost Increase in Production
+## 2.6 Scenario Drill: Diagnosing Prompt-Cache Instability from Dynamic Memory
 
 **Typical Question:**  
-Did you ever encounter a sudden token cost spike in the Agent memory system? Which metric did you notice first as abnormal? How did you prove the root cause?
+If token cost suddenly increased after enabling dynamic memory, how would you diagnose whether prompt-cache instability was the cause?
 
 **Interview Answer:**
 
-Yes, a fairly typical case was when dynamic memory blew through the prompt cache, causing a sudden spike in input token cost.
+I would not present this as a source-verified outage. The implementation does expose a real design concern: the Persona and Scene Navigation are relatively stable, while current-turn L1 recall changes frequently. Putting changing L1 content inside an otherwise reusable prefix can reduce prefix-cache reuse. The full L2 scene text is not a routine stable injection; it is read on demand through Scene Navigation.
 
-The first thing I noticed wasn't a simple `input_tokens` surge, but two metrics going abnormal together: first, per-turn billable input tokens in `agent_turn` increased; second, the prompt cache hit rate dropped noticeably — cached input tokens decreased. But business traffic, user question length, and tool call count all showed no significant change, so my initial judgment was that it wasn't users' requests getting more complex, nor tool logs suddenly ballooning.
+In a diagnosis, I would first compare billable input tokens, cached input tokens, traffic, prompt length, tool-result volume, model, and prompt version. A cost increase alone is not enough to blame cache behavior.
 
-Then I broke down each turn's prompt by trace and found the problem was the auto-recall injection position. At the time, we were putting L1 relevant memories in `appendSystemContext` — i.e., appended to the system prompt. But L1 recall changes dynamically every turn: when the user asks different questions, the few recalled memory entries are different. The result was that the system prompt changed every turn, and the model-side cache that could have covered the stable system instructions, tool descriptions, Persona, and Scene Navigation was all busted together.
+Next, I would compare adjacent-turn prompt hashes or diffs. If only the recalled L1 block changes inside an otherwise stable prefix, that is evidence for a cache-instability hypothesis. It is still a hypothesis until provider usage data and a controlled comparison support it.
 
-To prove the root cause, I did three things:
+I would validate it in three steps:
 
-First, I compared the prompt diff between two adjacent turns of the same session and found that most of the system prompt content was stable — the only thing really changing was those few lines in `<relevant-memories>`.
+First, compare adjacent prompts and isolate the exact dynamic block.
 
-Second, I looked at the cached token metric in LLM usage. In the abnormal version, cached tokens dropped visibly. After moving dynamic L1 memories away, cached tokens recovered.
+Second, check provider-reported cached-token usage, while holding model and request shape constant.
 
-Third, I ran an A/B test: one version continued putting L1 in system context; the other moved L1 to the user prompt prefix, keeping only L3 Persona, L2 Scene Navigation, and tool usage instructions in system context. After comparison, answer quality did not degrade, but prompt cache hits recovered and per-turn effective input cost dropped.
+Third, run a controlled benchmark: one variant keeps dynamic L1 in the stable prefix; the other keeps stable instructions, Persona, and Scene Navigation in the cacheable prefix and moves dynamic recall later. Compare answer quality, cache reuse, effective input tokens, and latency. I would only claim an improvement after recording those results.
 
-The final fix was splitting memory injection into two categories:
+The design I would test is splitting memory injection into two categories:
 
 ```text
-Stable context: L3 Persona, L2 Scene Navigation, tool instructions -> system prompt
+Stable context: L3 Persona, Scene Navigation derived from L2, tool instructions -> system prompt
 Dynamic context: current-turn L1 relevant memories -> user prompt prefix
 ```
 
-What this case taught me is that Agent cost isn't just about context length — it's also about context stability. The same few thousand tokens, if they contaminate the system prompt every turn, will invalidate the cache, and production costs will spike suddenly.
+The engineering lesson is that Agent cost depends on context stability as well as context length. Dynamic content should not casually invalidate a reusable prefix, but the actual cache behavior must be verified against the selected provider.
 
 ```mermaid
 flowchart LR
-    A["Abnormal Metrics<br/>billable input token ↑<br/>cached tokens ↓"] --> B["Ruled Out Traffic / User Questions / Tool Count"]
-    B --> C["Trace: Break Down Prompt"]
-    C --> D["Found L1 relevant memories<br/>contaminating system prompt"]
-    D --> E["Prompt Diff Proved<br/>Only L1 Changed Each Turn"]
-    E --> F["A/B: Changed Injection Position"]
-    F --> G["Cache Hits Recovered<br/>Cost Dropped"]
+    A["Observed Cost Change"] --> B["Control Traffic / Model / Prompt Length"]
+    B --> C["Trace and Diff Adjacent Prompts"]
+    C --> D["Form Cache-Instability Hypothesis"]
+    D --> E["Run Controlled Comparison"]
+    E --> F["Compare Quality / Cache / Cost / Latency"]
+    F --> G["Adopt Only If Evidence Supports It"]
 ```
 
 ---
@@ -369,7 +369,7 @@ What was the hardest technical challenge in this project?
 
 I think the hardest part was how to anchor "unreliable LLM generation" on "reliable code facts."
 
-In code understanding, the most dangerous thing isn't failing to answer — it's producing something that looks very plausible but can't be traced back to source code. So I built three layers of constraints:
+In code understanding, the most dangerous outcome is a plausible answer that cannot be traced back to source code. The current implementation uses three layers of constraints:
 
 First, facts should come from AST and graph whenever possible, not LLM guesses. Multi-language parsing uses a unified `AstSymbol` contract, converting functions, classes, endpoints, schemas, imports, and calls across different languages into the same intermediate representation.
 
@@ -377,7 +377,7 @@ Second, retrieval isn't pure text RAG. It's symbol seed + FTS/vector + graph exp
 
 Third, generated output must carry source references and pass server-side validation. After the LLM outputs JSON, the server checks whether source_refs come from allowed chunks, whether citation markers in the Markdown are valid, and whether Mermaid is parseable. If validation fails, it enters repair. If repair still fails, it's saved as draft.
 
-Difficulties also included cross-language AST discrepancies, uncertainty in cross-file call resolution, graph scale for large repositories, and incremental updates. But my overall trade-off was: I'd rather mark relationships as inferred with a confidence score than let the LLM fabricate relationships without evidence.
+Difficulties also include cross-language AST discrepancies, uncertainty in cross-file call resolution, graph scale for large repositories, and incremental updates. The implementation's trade-off is to mark uncertain static resolutions as inferred with provenance fields instead of presenting them as deterministic facts.
 
 ```mermaid
 flowchart LR
@@ -404,24 +404,31 @@ How did you prove it actually improved code comprehension efficiency?
 
 I look at two categories of metrics.
 
-One is engineering capability metrics. We stress-tested real large repositories like Rust, VS Code, and Superset. For Rust, the cold start parsed over 36,000 files, generating 300,000 nodes and 880,000 edges. For VS Code, it generated 160,000 nodes and 3,790,000 edges. This proves the AST and graph pipeline can handle real, complex repositories — not just demos.
+One is engineering capability metrics. The stored repository benchmarks include Rust, VS Code, and Superset. For Rust, the cold run covered over 36,000 files and produced roughly 300,000 nodes and 880,000 edges. For VS Code, it produced roughly 160,000 nodes and 3.79 million edges. The warm-file reuse rates were 99.7%, 96.9%, and 98.2% for Rust, VS Code, and Superset, while the corresponding end-to-end speedups were only 1.29x, 1.06x, and 1.51x. That gap is important: file reuse is high, but graph rebuild, community computation, and persistence still limit end-to-end acceleration.
 
-The other is usage and efficiency metrics. After internal team adoption, CodeWiki averaged ~50+ daily queries. Typical cross-module comprehension tasks went from roughly 2 hours of manually digging through code to about 30 minutes. During new-hire onboarding and code reviews, people no longer start with full-repo search and file-by-file jumping. Instead, they first look at the graph, community summaries, and source-referenced Wiki, then trace back to key code via references for verification.
+The second category would be human task efficiency and adoption, but I have to separate that from the repository benchmark. The older narrative mentions more than 50 daily queries, a change from about two hours to 30 minutes, and use in onboarding or code review. Without query logs, a defined task protocol, sample details, and before-and-after records, I would not quote any of those as verified results.
+
+To prove comprehension efficiency, I would define representative cross-module tasks on a fixed repository, compare the same success criteria with and without CodeWiki, and record completion rate, time to a source-verified answer, citation correctness, and follow-up effort. For adoption, I would use auditable query logs and distinguish unique users, sessions, automated calls, and failed requests. Until those records are available, the defensible result is engineering benchmark capability, not a claimed productivity gain.
 
 I think this closed loop is critical: it's not about making people trust the model, but about letting the model help you locate entry points and organize dependency relationships, so you can quickly verify against source references.
 
 ```mermaid
 flowchart TD
-    Before["Before<br/>Full-repo search + file jumping + manually reading call chains<br/>~2 hours"] --> After["CodeWiki<br/>Graph entry + GraphRAG + Wiki references<br/>~30 minutes"]
-    After --> Verify["Verify against source code via source_refs"]
-    Verify --> Use["Code Review / Onboarding / Cross-module Investigation"]
+    Repo["Recorded Repository Benchmarks"] --> Eng["Capacity / Reuse / End-to-End Runtime"]
+    Task["Defined Cross-Module Tasks"] --> Compare["Baseline vs. CodeWiki"]
+    Compare --> Measure["Completion / Time / Citation Correctness"]
+    Logs["Auditable Query Logs"] --> Adopt["Users / Sessions / Failures / Automation"]
+    Eng --> Claim["Make Only Evidence-Scoped Claims"]
+    Measure --> Claim
+    Adopt --> Claim
 ```
 
 **Follow-up Points:**
 
-- Engineering metrics: large-repo stress tests, node/edge scale, parse error rate, incremental reuse rate.
-- Business metrics: daily query count, typical task duration, onboarding feedback.
-- Quality metrics: source_refs validation, draft rate, user follow-up query rate.
+- Engineering metrics: large-repo runs, node/edge scale, parse errors, warm-file reuse, and end-to-end speedup.
+- Human-efficiency metrics I would measure: task success, time to a verified answer, citation correctness, and follow-up effort.
+- Adoption metrics require source logs: unique users, human versus automated queries, sessions, failures, and repeat use.
+- Quality metrics: source-ref validation and draft outcomes can come from the generation pipeline; user follow-up behavior requires source query logs.
 
 ---
 
@@ -458,7 +465,7 @@ How do you unify multi-language ASTs? How do you handle uncertainty in cross-fil
 
 **Interview Answer:**
 
-I built a unified `AstSymbol` contract. Whether it's Python, TypeScript, Java, Go, Rust, C/C++, or C#, everything ultimately maps to unified fields: id, type, name, file_path, start_line, end_line, signature, imports, calls, references, bases, implements, metadata.
+The parser layer maps Python, TypeScript, Java, Go, Rust, C/C++, and C# into a unified `AstSymbol` contract with fields such as id, type, name, file path, line range, signature, imports, calls, references, bases, implements, and metadata. I would claim personal ownership of that contract only if the RACI confirms it.
 
 Language differences are handled in two layers: the first layer is capture specs, using tree-sitter queries to extract basic structure. The second layer is language augmenters, supplementing language-specific information — e.g., TS/JS exports, HTTP endpoints, schemas; Go receiver methods; Python decorator routes.
 
@@ -477,13 +484,13 @@ What exactly did the AI Weekly Report system do? Where were the difficulties?
 
 **Interview Answer:**
 
-The AI Weekly Report system's background was that bank operations data weekly reports originally relied on manual collection, statistics, and analysis from multi-source systems — roughly 8 to 10 hours per week, with data easily missed or reported with inconsistent standards.
+The AI Weekly Report system targets a bank workflow where operations data has to be collected, summarized, and analyzed across multiple sources. Earlier project material estimates the manual process at roughly 8 to 10 hours per week, but I would treat that as an estimate until the calculation and source records are confirmed.
 
-I built a fully automated pipeline from scratch: after the end-of-day batch triggers, it first initializes download control records. It then backtracks by date to check for unsuccessfully processed data in the recent period, calls multi-source APIs to pull data, persists it on success and updates the control table. Once all 7 days of the previous week's data have been successfully downloaded, it enters the LLM analysis phase.
+The current pipeline works as follows: after the end-of-day batch triggers, it initializes download control records. It then backtracks by date to check recent unsuccessful records, calls multi-source APIs, persists successful results, and updates the control table. Once all seven days of the previous week have successful download status, it enters the LLM analysis phase. My exact ownership of each step should follow the verified RACI rather than the breadth of this architecture description.
 
-LLM analysis does not dump all data in at once. Instead, it splits by module — e.g., error log volume, large/long transactions, slow SQL, async posting monitoring. Each module first runs structured statistics into the database, then assembles a prompt to call the AI platform for analysis. For excessively long data, it applies length control, truncation, or batching. Each module has independent retry and failure markers. Only when all modules succeed does it update the full-week analysis status and push the weekly report.
+LLM analysis does not dump all data in at once. Instead, it splits work by module — for example, error-log volume, large or long transactions, slow SQL, and asynchronous-posting monitoring. Each module first computes and stores structured statistics, then assembles a prompt for the internal AI platform. The current flow has length control and finite retries. A module failure changes an in-process global success flag, while later modules can continue. It does not persist a separate durable status per module, so the next batch re-enters the weekly analysis flow rather than precisely rerunning only the failed module. Only a globally successful round updates the weekly analysis status and proceeds to report assembly and push.
 
-The final result: weekly report time dropped from 8–10 hours to about 20 minutes, saving roughly 50 person-days per year, and has been running stably in production since launch.
+Earlier project material estimates an automated run at about 20 minutes and derives roughly 50 person-days per year from the manual-time assumption. I would present both as estimates that need job timestamps and labor-baseline evidence. The available material does not establish production tenure or post-launch operational stability.
 
 ```mermaid
 flowchart TD
@@ -495,8 +502,11 @@ flowchart TD
     Check -- Incomplete --> Stop["Wait for Next Batch Compensation"]
     Check -- Complete --> Modules["Per-Module Statistics"]
     Modules --> LLM["LLM Segmented Analysis<br/>Length Control / Retry"]
-    LLM --> Assemble["Assemble Weekly Report"]
-    Assemble --> Push["Push / Persist / Status Update"]
+    LLM --> Gate{"Global Success?"}
+    Gate -- No --> Next["Keep Analysis Pending<br/>Next Batch Re-enters Round"]
+    Gate -- Yes --> Status["Update ANA_STATUS"]
+    Status --> Assemble["Assemble Weekly Report"]
+    Assemble --> Push["Call Push Interface<br/>No Separate Durable Send State"]
 ```
 
 ---
@@ -510,15 +520,15 @@ What distinguishes this project from a simple script?
 
 I think it's far from a simple script, mainly reflected in several engineering points:
 
-First, it has a control-table-driven state machine. Every date has a download status and analysis status, supporting failure retry and subsequent compensation — data won't be lost just because an API wobbled on a particular day.
+First, it has control-table-driven batch state. Every date has download and analysis status, so a failed collection can remain pending and later batches can revisit it. This protects against obvious missing days, but it does not prove upstream pagination completeness or end-to-end delivery.
 
 Second, it has transaction boundaries. Data persistence and status updates are placed within transactions, preventing scenarios where data is written but status isn't updated, or status succeeds but data is incomplete.
 
-Third, LLM calls have length control and module isolation. Operations data can be very long and can't be fed to the model directly, so it must be split by business module, with truncation or batching when necessary. A single module's failure won't affect other modules' statistics. A global flag ultimately determines whether the full round of analysis succeeded.
+Third, LLM calls have length control and module-level execution boundaries. Operations data can be long, so the flow splits it by business module and can truncate or batch input when necessary. A module failure does not stop later modules in the same round, and a process-local global flag determines whether the whole round succeeds. The current version does not have a durable per-module state machine or precise failed-module rerun.
 
-Fourth, it has idempotency design. For example, control records and analysis results use `INSERT IGNORE`, so repeated batch executions won't create duplicate data.
+Fourth, it has partial duplicate protection. Control records and result tables use `INSERT IGNORE`, which can suppress duplicate rows when the relevant unique key matches. That is not full end-to-end idempotency: the current material does not prove an atomic job lease, and repeated runs can still duplicate upstream calls, model calls, or push attempts.
 
-These designs ensure it can run stably within the production end-of-day system, not just a demo you click once.
+These designs make it a stateful batch workflow rather than a one-click demo. Whether it met a particular production stability target, for how long, and under what operating load still requires deployment and operations evidence.
 
 ## 4.3 Most Failure-Prone Links and Stability Design
 
@@ -529,31 +539,32 @@ In the chain of data collection, LLM segmented analysis, weekly report assembly,
 
 There are three main failure-prone links.
 
-The first is upstream multi-source API collection. Upstream systems may time out, return empty data, have late-arriving data for the day, or a single day's download may fail. Without state control here, subsequent weekly reports would be generated based on incomplete data. So I designed a download control table where each date has a `PROC_STATUS`; failures remain pending. Each day's batch backtracks the last N days of unsuccessful records for continued compensation. API calls themselves have a maximum retry count and retry interval; after failure, the status is not mistakenly set to success.
+The first is upstream multi-source API collection. Upstream systems may time out, return empty data, have late-arriving data, or fail for one date. The current flow uses a download control table where each date has a `PROC_STATUS`; failures remain pending, and later batches scan a recent window for compensation. API calls have a bounded retry count and interval, and a failed collection is not marked successful. My personal contribution to this control design still needs to match the verified RACI.
 
-The second is LLM analysis. Operations data can be long; the model may time out, return abnormal formats, or a particular module's analysis may fail. So I split by business module — e.g., error log volume, large/long transactions, slow SQL, async posting monitoring. Each module independently runs statistics, independently calls the LLM, independently retries. If a module fails, it records the error and sets the global `IS_ALL_ANALYSIS_SUCCESS = false` — a half-finished weekly report is never marked as successful.
+The second is LLM analysis. Operations data can be long; the model may time out, return abnormal formats, or fail on a particular module. The current flow processes modules separately and uses bounded retry. If a module still fails, it logs the failure and sets the process-local `IS_ALL_ANALYSIS_SUCCESS = false`; later modules can still run, but the whole round is not marked successful. Because module outcomes are not durably persisted as an independent state machine, I would not describe this as precise failed-module rerun.
 
-The third is persistence and status updates. The biggest risk here is data being written successfully but status not updated, or status succeeding but data not fully written. So data persistence and control table status updates are placed within the same transaction boundary. Control records and result tables use idempotent writes, e.g., `INSERT IGNORE`, so repeated batch executions won't create duplicate data.
+The third is persistence and status updates. Database writes and related control-state updates use transaction boundaries, and `INSERT IGNORE` reduces duplicate rows for matching unique keys. But the external push is outside the database transaction. The current flow updates analysis status before calling the push interface and has no independently verified send state or Outbox, so a send timeout can leave "analysis succeeded" without proven delivery. Durable send state, an Outbox, and idempotent delivery would be next-version controls.
 
-For alerting, I monitor around three states: consecutive download failure alerts, module analysis retry exhaustion alerts, and weekly report cycle deadline reached but report still not generated alerts. Alert content includes processing date, module name, retry count, error summary, and trace_id, making it easy for on-call colleagues to directly identify whether it's an upstream data issue, an LLM issue, or a database write issue.
+For observability, the current evidence supports control-table states, `TECH_TRACE_ID`, maintenance/version fields, and step logs. It does not prove that a complete dashboard, alert thresholds, or an on-call workflow was already implemented. In a production-hardened version, I would alert on pending age, repeated collection failures, module retry exhaustion, report deadlines, and send failures, with a `trace_id` or `report_id` connecting the evidence. I would present that last sentence as next-version design, not current behavior.
 
 ```mermaid
 flowchart TD
     Start["End-of-Day Batch"] --> Ctrl["Control Table Check"]
     Ctrl --> API["Multi-Source API Download"]
-    API -->|Fail| RetryAPI["Retry / Keep PENDING / Alert"]
+    API -->|Fail| RetryAPI["Bounded Retry / Keep PENDING / Log"]
     API -->|Success| Tx1["Transaction: Data Persist + Download Status Update"]
     Tx1 --> Complete{"Previous Week 7 Days Complete?"}
     Complete -- No --> Wait["Wait for Next Backtrack Compensation"]
     Complete -- Yes --> Mod["Per-Module LLM Analysis"]
-    Mod -->|Module Fail| RetryLLM["Module Retry / Record Error / Alert"]
+    Mod -->|Module Fail| RetryLLM["Bounded Retry / Global Flag False / Log"]
     Mod -->|All Success| Tx2["Transaction: Analysis Result + ANA_STATUS"]
-    Tx2 --> Push["Assemble and Push Weekly Report"]
+    Tx2 --> Push["Assemble and Call Push Interface"]
+    Push -. "Send result not in DB transaction" .-> Gap["Next Version: Send State / Outbox"]
 ```
 
 ---
 
-# 5. Agent Execution Engine System Design Problem
+# 5. Scenario Design: Agent Execution Engine
 
 ## 5.1 Designing an Extensible Agent Execution Engine from Scratch
 
@@ -671,54 +682,47 @@ flowchart TD
 
 ---
 
-# 6. Collaboration and Execution Case Study
+# 6. Behavioral-Answer Boundary and Scenario Framework
 
-## 6.1 How to Drive Progress When Requirements Are Vague or Disputed
+## 6.1 How I Would Drive Progress When Requirements Are Vague
 
 **Typical Question:**  
-Tell me about an experience where you independently drove a project forward despite unclear or disputed requirements, and ultimately delivered it.
+Tell me about an experience where you drove a project forward despite unclear requirements.
 
 **Interview Answer:**
 
-I'll talk about the Agent Memory system.
+I need to be careful with this question. The current project artifacts verify architecture and scoped benchmark results, but they do not verify the origin of the requirements, stakeholder positions, experiment chronology, delivery order, rollout status, or decision-artifact history. I would not turn plausible details into a personal STAR story.
 
-Initially, the requirements were very vague — the goal was just one sentence: "We want the Agent to remember user habits and project context, and long tasks shouldn't be overwhelmed by tool logs." But what "memory" actually meant — storing chat history, doing vector retrieval, or context compression — people understood differently.
+If my internal records confirm a real episode, I would answer with the actual stakeholders, my RACI, the decision I owned, the options we considered, and a result that has evidence. Until then, my honest spoken answer would be: "I can explain how I would structure an unclear Agent-memory problem, but I don't want to invent a collaboration event that the project documentation doesn't prove."
 
-There were two main disagreements at the time. One was on approach: some felt we should just build a vector database, chunk up historical conversations, and store them. The other was on pacing: the partner team was more concerned with integrating with OpenClaw quickly, while I worried that starting with just a flat vector database would lead to fragmented recall, no traceability, and summary pollution down the line.
+As a scenario answer, I would first separate the problem into cross-session memory and within-session Context Offload, because they have different data and success criteria. I would define acceptance measures before choosing an architecture: final-answer quality and evidence traceability for long-term memory; token use, task outcome, and original-result drill-down for offload. Then I would test the smallest viable interfaces against fixed cases, document the current-versus-next-version boundary, and only expand integration after the results justify it.
 
-I didn't argue about architecture directly. Instead, I first decomposed the problem into two verifiable objectives: for long-term memory, look at test-set answer accuracy; for short-term memory, look at token consumption and task pass rate under long sessions. Then I built a small POC comparing global summaries, pure vector retrieval, and L0–L3 tiered memory. The results were clear: pure summaries saved tokens but were untraceable; pure vector recall was too fragmented; the tiered approach, while slightly more complex, could simultaneously preserve both evidence and structure.
-
-In execution, I made a few trade-offs. First, the initial version didn't jump into a heavy distributed architecture — it ran on local SQLite/sqlite-vec first, with cloud vector DB adaptation planned for later. Second, for long-term memory, I delivered L0 originals, L1 atomic facts, and L3 Persona first, with L2 scenario aggregation filled in asynchronously later. Third, short-term context offloading was configurable and off by default — ensuring no impact on existing Agent behavior first, then gradually enabling compression strategies.
-
-The result: the project ultimately shipped as both an OpenClaw plugin and a Hermes Gateway integration. Long-term memory test-set answer accuracy improved from 48% to 76%. For short-term memory, token consumption in long tasks like WideSearch dropped up to 61%, with task pass rate also improving.
-
-Looking back, I think what I'd improve: from the very beginning, I should have defined evaluation criteria and online metrics more formally — for example, pre-agreeing on metrics like accuracy, token, latency, and fallback success rate, rather than filling them in after the POC. Also, for complex modules like the offload hook and context compression strategy, I'd write RFCs and sequence diagrams earlier to help partner teams understand the boundaries faster.
+The recorded WideSearch and PersonaMem numbers can support the benchmark discussion, but they cannot prove a collaboration narrative or rollout chronology.
 
 ```mermaid
 flowchart TD
-    Fuzzy["Vague Requirements<br/>What even is 'memory'?"] --> Split["Decompose into Verifiable Objectives<br/>Long-term accuracy / Short-term token & pass rate"]
-    Split --> POC["POC Comparison<br/>Global summary / Pure vector / L0-L3"]
-    POC --> Decision["Chose Tiered Approach<br/>Evidence + Structure"]
-    Decision --> MVP["MVP Trade-offs<br/>SQLite local / L0-L1-L3 first / offload configurable"]
-    MVP --> Integrate["Integrated with OpenClaw / Hermes"]
-    Integrate --> Result["Accuracy 48% -> 76%<br/>Token up to -61%"]
+    Fuzzy["Unclear Requirement"] --> Split["Separate Long-Term Memory<br/>from Context Offload"]
+    Split --> Criteria["Define Quality / Token / Traceability Criteria"]
+    Criteria --> Test["Test Fixed Cases"]
+    Test --> Boundary["Document Current vs. Next Version"]
+    Boundary --> Decision["Expand Only with Evidence"]
 ```
 
 ---
 
 # 7. High-Frequency Follow-Up Question Bank
 
-## 7.1 Agent Memory
+## 7.1 In-House Agent Memory
 
 ### Q1: What if L1 extraction produces wrong results?
 
 **Answer:**  
-L1 is an LLM extraction layer, so I don't treat it as absolute fact. First, L0 raw conversations are fully preserved and can be re-extracted. Second, before writing, L1 undergoes quality filtering, structural validation, dedup, and conflict detection. Third, L2/L3 both retain provenance chains — if an issue is found, you can trace back to L0 for verification. Fourth, during recall, it's only used as reference context and never allowed to override the user's current explicit input.
+L1 is an LLM extraction layer, so I don't treat it as absolute fact. L0 preserves the raw conversation, and the L1 prompt asks each memory to carry `source_message_ids`. Before online storage, the pipeline also performs structural checks and candidate-based `store`, `skip`, `update`, or `merge` decisions. But the current implementation does not hard-validate every source ID or prove that the source text entails the extracted memory, and I would not claim that L2 and L3 provide a complete end-to-end provenance chain. When investigating an error, I use the available source IDs and L0/L1 artifacts as evidence, while acknowledging that strict span validation is a next-version requirement.
 
 ### Q2: What if incorrect memories are recalled?
 
 **Answer:**  
-I control this at both the recall strategy and injection strategy layers. On the recall side: score threshold, top-k, type/scene filters, and Hybrid RRF. On the injection side: use explicit labels to tell the Agent this is historical memory, for reference only, and does not represent current task facts. If the user's current input conflicts with memory, the current input takes priority. Drill-down verification via L0/L1 search tools is also supported.
+I separate what the current Recall path does from what stronger governance would add. The current implementation uses a configured top-k and a selected keyword, embedding, or Hybrid strategy. Pure keyword or embedding paths can use the configured score threshold, while local Hybrid merges two ranked candidate lists with RRF and takes the top results; it does not apply a documented default unified RRF cutoff. The current Recall path also does not provide a complete type-and-scene filter chain. Recalled text is labeled as historical context, and the current user request should take priority, but hard conflict verification and richer type/scene policy are next-version controls.
 
 ### Q3: Why is Mermaid suitable for short-term memory?
 
@@ -728,12 +732,12 @@ Because in long tasks, what the Agent needs most is a sense of direction: what t
 ### Q4: How to prevent long-term memory contamination?
 
 **Answer:**  
-Don't elevate everything directly to Persona. L0 retains everything. L1 strictly extracts. L2 aggregates into scenarios. L3 retains only stable, cross-scenario, high-confidence information. Persona generation is low-frequency and can also be incrementally updated based on scenario changes. Conflicts and temporary information should stay at L1/L2 as much as possible and not be casually written into L3.
+Don't describe the current system as if it has a hard stability gate. L0 keeps the raw evidence, L1 extracts atomic memories, L2 organizes scenes, and the L3 prompt asks the model to update Persona conservatively from changed scenes and the existing Persona. But there is no structured `stability` field or rule such as `stability=high` before information can enter L3. Filtering temporary information more rigorously, requiring repeated evidence, and representing conflicts explicitly are next-version governance ideas.
 
 ### Q5: What do offline and online evaluation look at respectively?
 
 **Answer:**  
-Offline: test dataset final answer accuracy, recall hits, false recall rate, token consumption. Online: user correction rate, memory tool invocation rate, answer helpfulness, per-turn input tokens, prompt cache hit rate, recall latency, task pass rate.
+Offline, I would measure final-answer accuracy, relevant-memory recall, incorrect injection, token use, evidence drill-down, and task outcomes on a versioned dataset. For an online deployment, I would measure user correction, helpfulness, original-evidence drill-down, per-turn tokens, recall latency, cache behavior, and task outcomes by task type. Those are metrics I would instrument; the current project material does not verify that a complete online metric pipeline already exists.
 
 ---
 
@@ -771,7 +775,7 @@ Page generation must carry source_refs. Server-side validation checks that refer
 ### Q1: What if LLM analysis results are unstable?
 
 **Answer:**  
-First, structure the input by fixing the statistical results and business definitions. Second, fix the prompt template and split by module to reduce per-call complexity. Third, persist results with trace and original statistics for manual review. Fourth, retry per module on failure without affecting the integrity of the full batch.
+First, structure the input around deterministic statistics and business definitions. Second, fix the prompt template and split work by module to reduce per-call complexity. Third, persist traceable results and the underlying statistics so they can be inspected later. Fourth, use bounded retry within the module run, but keep the current limitation clear: module outcomes are not durably persisted for precise failed-module rerun.
 
 ### Q2: What if multi-source APIs fail?
 
@@ -803,13 +807,13 @@ You can also ask:
 
 # 9. One-Page Cheat Sheet
 
-## Agent Memory
+## In-House Agent Memory
 
 - Background: long-task context bloat, no cross-session memory.
 - Architecture: L0 originals, L1 atomic facts, L2 scenarios, L3 Persona.
 - Retrieval: Vector + BM25 + RRF.
 - Compression: refs originals, jsonl summaries, MMD state diagrams.
-- Results: Token up to -61.38%, pass rate +51.52%, long-term memory accuracy 48% -> 76%.
+- Recorded benchmarks: WideSearch tokens 221.31M -> 85.64M and pass rate 33% -> 50%; PersonaMem final-answer accuracy 48% -> 76%. These are configuration-scoped offline results.
 - Keywords: traceability, tiered, context governance, prompt cache, state recovery.
 
 ## CodeWiki
@@ -818,15 +822,15 @@ You can also ask:
 - Architecture: RepoScanner -> AST -> Code Graph -> GraphRAG -> Wiki/Ask.
 - Difficulty: LLM generation must be anchored on deterministic source-code facts.
 - Safeguards: source_refs validation, Mermaid validation, repair/draft.
-- Results: 50+ daily queries, cross-module comprehension 2 hours -> 30 minutes.
+- Recorded results: large-repository capacity plus warm-file reuse of 99.7% / 96.9% / 98.2% and end-to-end speedup of 1.29x / 1.06x / 1.51x for Rust / VS Code / Superset. Daily-query and 2-hours-to-30-minutes claims still require source logs and a defined study.
 - Keywords: AST, graph, GraphRAG, source-grounded, provenance.
 
 ## AI Weekly Report
 
-- Background: manual weekly report 8–10 hours.
+- Background estimate: earlier material says the manual workflow took 8–10 hours; confirm the measurement before quoting it.
 - Architecture: end-of-day batch, control table, backtrack download, per-module statistics, LLM analysis, assembly and push.
 - Safeguards: retry, transactions, idempotency, length control.
-- Results: down to 20 minutes, saving 50 person-days/year.
+- Estimated result: earlier material says about 20 minutes and derives roughly 50 person-days/year; this requires timestamps, labor assumptions, and deployment evidence.
 
 ## Agent Execution Engine
 
@@ -843,13 +847,13 @@ You can also ask:
 
 This section is suitable for second-round interviews or when a tech lead continues probing. You don't need to memorize all the answers, but you should know the "engineering lever" for each question.
 
-## 10.1 Agent Memory Extended Questions
+## 10.1 In-House Agent Memory Extended Questions
 
 ### Q1: Why build a host-neutral `TdaiCore`?
 
 **Answer:**  
 Because a memory system should not be tied to a single Agent host. OpenClaw, Hermes, and Gateway have different event models, logging, and LLM invocation patterns, but the core memory capabilities are the same: capture, recall, search, pipeline.  
-So I converge host differences into `HostAdapter` and `LLMRunnerFactory`, with the core layer depending only on abstract interfaces. This way, the same L0–L3 logic can be reused across plugins, HTTP Gateways, or standalone modes.
+The code converges host differences into `HostAdapter` and `LLMRunnerFactory`, with the core layer depending on abstract interfaces. This allows the same L0–L3 logic to be reused across plugins, HTTP Gateways, or standalone modes.
 
 ```mermaid
 flowchart LR
@@ -868,33 +872,34 @@ Recall also has timeout protection. If retrieval or Persona reads time out, memo
 ### Q3: How to ensure state consistency under concurrency?
 
 **Answer:**  
-The core is session-dimension isolation and start/write mutual exclusion. Each session has its own key, jsonl, and state. The scheduler startup uses a promise gate to prevent multiple requests from simultaneously initializing and overwriting state. Background embedding writes are drained before destroy to avoid async writes after the database is closed.
+The current isolation is partial, so I separate scheduling from storage. Each Session has its own key, counters, timers, and in-memory buffer, but long-term L0/L1 JSONL is sharded by day rather than stored one file per Session; Context Offload has a separate Agent/Session directory model. One `MemoryPipelineManager` also shares one serial queue per layer across its Sessions. Checkpoint writes use a per-file in-process lock and atomic rename, while deferred Embedding tasks are drained before Store shutdown. None of that is a cross-process distributed lock or a complete tenant boundary.
 
 ### Q4: Why support both SQLite and cloud vector database backends?
 
 **Answer:**  
-SQLite/sqlite-vec suits local-first, zero-config, developer-tool scenarios. Cloud vector databases suit multi-device sync, larger scale, and production deployment.  
-I abstract storage as `IMemoryStore` — upper layers only care about upsert/search, not whether the underlying is local or cloud. This way, v1 can ship quickly, and later scaling doesn't require rearchitecting.
+SQLite/sqlite-vec suits local-first, zero-config, developer-tool scenarios. The current TCVDB adapter provides a cloud-backed option with a different indexing and embedding path.
+
+`IMemoryStore` reduces upper-layer coupling, but it does not make an existing-data migration automatic. A real cutover still needs schema mapping, embedding-model and dimension checks, index creation, backfill, reconciliation, dual-read or shadow validation, rollback, and identity-scope verification.
 
 ### Q5: How to clean up long-term memory? How to avoid accidental deletion?
 
 **Answer:**  
-Cleanup must be conservative. When purging L0/L1 by retention days, require minimum retention guardrails, deletion proportion protection, and audit logs. L2/L3 — high-level memories — should not be deleted simply by time, because they may still represent long-term preferences. Before actual deletion, ensure the underlying evidence chain and high-level references won't break.
+Cleanup must be conservative. The current local Cleaner is optional, applies retention days to L0/L1 daily shards and Store rows, skips deletion when total L0 or L1 counts are at their minimum guardrails, and emits a cleanup summary event when reporting is enabled. It does not implement a deletion-percentage cap or a complete compliance audit trail. L2 Scene, Persona, Offload refs/MMDs, remote Profiles, and backups have different lifecycles, so a user deletion cannot be described as one TTL job; the next version needs an explicit scope, downstream-impact calculation, idempotent propagation, and deletion evidence.
 
 ### Q6: How to prevent Prompt Injection from contaminating memory?
 
 **Answer:**  
-First, L0 can record verbatim, but L1 extraction runs quality filtering and suspicious-content filtering beforehand. Second, the extraction prompt explicitly only extracts user facts, preferences, and constraints — it does not execute instructions from historical text. Third, recalled memories are wrapped in tags declaring them as historical references, not system instructions. Fourth, high-level Persona generation is even more conservative, only absorbing stable information.
+First, L0 can record the original text while capture sanitization removes known framework-injected blocks and noise. Second, the L1 extraction prompt tells the model to extract memory facts rather than execute instructions from historical text. Third, recalled memories are wrapped as historical context rather than system instructions. Fourth, the Persona prompt asks the model to be conservative. These are useful soft controls, but there is no hard `stability` gate or complete semantic prompt-injection defense in the current implementation.
 
 ### Q7: What if the LLM's extracted JSON format is broken?
 
 **Answer:**  
-This kind of problem must be handled with engineering rigor: require JSON mode or structured output; on parse failure, attempt sanitization and partial repair; if still failing, log the failure and skip this batch without affecting the main conversation; if necessary, reduce model freedom or switch to a more stable model. A single extraction failure must never block a user request.
+I would first state the current behavior: the L1 parser strips an optional fence, extracts a JSON array, sanitizes control characters, and calls `JSON.parse`. Missing or malformed JSON is logged as a warning and returned as an empty array. That keeps the user conversation available, but the caller can mistake it for a valid zero-memory result and advance the batch cursor, so this is a silent-loss risk rather than a complete failure policy. The next version should distinguish `valid_empty` from `parse_failed`, advance the cursor only on success, use provider Structured Output where available, and put failed batches into an idempotent replay queue.
 
 ### Q8: Why have mild / aggressive / emergency tiers for short-term context compression?
 
 **Answer:**  
-Because the objectives differ at different watermarks. The mild phase aims to lose as little context as possible — only replace tool results with summaries. The aggressive phase aims to keep the task executing — allow deleting old messages from the prompt, but evidence remains externally. The emergency phase aims to prevent the request from outright failing due to exceeding the context window — perform last-resort deletion or truncation. The three tiers allow gradual trade-offs among quality, cost, and availability.
+Because the objectives differ at different watermarks. The mild phase replaces eligible tool results with summaries. The aggressive phase can delete older prompt messages while retaining offloaded tool references. The emergency phase is a lossy last resort that protects the latest real user message but can remove earlier user messages or truncate oversized content. `refs` preserve offloaded tool originals, not every deleted conversation message. The three tiers make the quality-versus-availability trade-off explicit.
 
 ---
 
@@ -966,7 +971,7 @@ The control table keeps pending status. Each day's batch backtracks the last N d
 ### Q3: If one analysis module fails, what happens to the entire weekly report?
 
 **Answer:**  
-Each module retries independently. On failure, it records the error and sets the global success flag to false. As long as a critical module fails, the full-week analysis status is not set to success for that round, preventing a half-finished weekly report from being output.
+The current run processes modules separately with bounded retry. If one still fails, it logs the error and flips the process-local global success flag to false, while later modules can continue. The full-week analysis status is not set to success for that round. Because there is no durable per-module status, the next batch re-enters the broader weekly analysis flow; it does not precisely rerun only the failed module.
 
 ### Q4: How to control prompt length?
 
@@ -980,7 +985,8 @@ First, split by business module, then aggregate by product/app/date. When too lo
 ### Q1: What's your most familiar async programming scenario?
 
 **Answer:**  
-Agent Memory has many async scenarios: user requests must not be blocked by long L1/L2/L3 tasks; embedding writes can run in the background; Gateway multi-requests concurrently trigger the scheduler — so promise gates, background task draining, timeout protection, and degradation strategies are needed.  
+The In-House Agent Memory project has many async scenarios: user requests must not be blocked by long L1/L2/L3 tasks; embedding writes can run in the background; Gateway requests can concurrently trigger the scheduler, so promise gates, background-task draining, timeout protection, and degradation strategies are needed.
+
 In CodeWiki, LLM calls, page generation, and background analysis tasks also need async handling to avoid blocking the API.
 
 ### Q2: How do you design REST/gRPC APIs?
@@ -996,17 +1002,17 @@ Structured state, tasks, events, tool calls, documents, graph nodes, and edges a
 ### Q4: How to achieve observability?
 
 **Answer:**  
-Every run has a trace_id. Each node, LLM call, tool call, retrieval, compression, and retry is recorded as an event. Metrics include latency, tokens, cache hits, tool success, retries, fallbacks, and final success. Logs retain input summaries and artifact references without directly leaking sensitive originals.
+For an Agent engine, I would propagate a `trace_id` through nodes, model calls, tools, retrieval, compression, and retry events. I would measure latency, tokens, cache use, tool outcomes, retries, fallbacks, and final outcomes, while logging summaries and restricted artifact references rather than sensitive originals. This is a target observability design, not a claim that all three projects already emit every event.
 
 ### Q5: How to handle high concurrency?
 
 **Answer:**  
-Rate limiting at the entry layer, queue-based load leveling, horizontal worker scaling. Separate queues for long and short tasks. Connection pools and timeouts for tool calls. Model-level rate limiting and backoff for LLM calls. Optimistic locking or step leases for state updates to prevent multiple workers from executing the same step simultaneously.
+For a scaled Agent engine, I would use entry admission control, queues, horizontal workers, separate scheduling for long and short tasks, connection pools, and tool deadlines. Model quotas need bounded backoff, while state updates need a lease with fencing or optimistic versions. These are system-design controls; their exact policy requires load tests.
 
 ### Q6: How to control security risks?
 
 **Answer:**  
-At the tool layer: permissions, schema validation, parameter allowlists, high-risk operation approval. At the memory layer: prompt injection prevention and sensitive information handling. At the logging layer: redaction. Tenant isolation. External API keys via environment variables or secret management, never written to ordinary logs.
+For a production design, I would enforce tool permissions, schema validation, parameter allowlists, and approval for high-risk actions. Memory and tool content should be treated as untrusted, with isolation, minimization, redaction, restricted artifacts, and secret management. The current In-House Agent Memory implementation has some sanitization and prompt-boundary controls, but it does not prove complete semantic injection defense, PII detection, or enterprise multi-tenant isolation.
 
 ```mermaid
 flowchart TD
@@ -1032,8 +1038,8 @@ For project introductions, I suggest this structure:
 One sentence of background
 One sentence of goal
 Three sentences of architecture
-Three points you were responsible for
-Two metrics of results
+Three contribution points confirmed by the RACI
+Two evidence-scoped metrics
 End with one technical difficulty
 ```
 
@@ -1054,11 +1060,11 @@ This is much more stable than fabricating a detail.
 
 1. When I work on Agents, I don't just call LLMs — I design backend systems around state, tools, memory, context, and observability.
 2. I tend to let deterministic code own the facts, and let the LLM own reasoning and expression.
-3. I've done post-launch cost and stability governance — for example, the case where prompt cache was busted by dynamic memory.
+3. I can reason about post-launch cost and stability governance — for example, how I would diagnose prompt-cache instability caused by dynamic memory.
 
 ---
 
-# 12. Agent Execution Engine Deep Design: How to Land It from 0 to 1
+# 12. Scenario Design: Landing an Agent Execution Engine from 0 to 1
 
 This chapter is the centerpiece of system design questions. If the interviewer asks "if you were to design an Agent execution engine from scratch," just saying "graph state machine" isn't enough — you need to articulate how each component lands.
 
@@ -1084,7 +1090,7 @@ This chapter is the centerpiece of system design questions. If the interviewer a
 
 > For the tool layer, I'd build a standardized Tool Registry. Every tool has name, description, input schema, permission scope, timeout, retry strategy, whether it requires human approval, and whether it's idempotent. The LLM is only responsible for producing the tool name and parameters. The actual parameter validation, authorization, rate limiting, timeout, retry, and result archiving are handled by the Tool Runtime.
 
-> Large results are not stuffed back into context directly — they're stored as artifacts, and only the summary and reference are handed back to the Agent. This is the same offloading philosophy as in Agent Memory — tool logs must not blow up the context.
+> Large results are not stuffed back into context directly — they're stored as artifacts, and only the summary and reference are handed back to the Agent. This is the same offloading philosophy as in the In-House Agent Memory project: tool logs must not blow up the context.
 
 > Tool calls have several key design points: idempotency keys to prevent duplicate execution; timeout control to prevent hanging; exponential backoff retry; failure classification (retryable vs. non-retryable); circuit breakers to prevent an external service outage from dragging down the entire Agent.
 
@@ -1116,99 +1122,91 @@ This chapter is the centerpiece of system design questions. If the interviewer a
 
 ---
 
-# 13. More Incident Postmortem Cases: Pitfalls Hit in Production
+# 13. Scenario Failure-Mode Drills
 
-This chapter supplements more production incident cases. Each follows the pattern: symptom, root cause, fix, lesson. Pick a few to tell during the interview.
+These are hypothetical failure-mode drills, not personal outage stories. Use conditional language: “If I observed this symptom, I would test this hypothesis and apply these controls.”
 
 ## 13.1 Agent Infinite Loop Burning Tokens
 
-> The symptom: a particular Agent run went over 200 rounds without ending, with token consumption exploding. The root cause: the LLM kept calling the same tool with the same parameters. After ToolNode returned the result, the LLM called it again — an infinite loop. The fix: add a max_steps cap (default 50 steps). Exceeding it forces FinalNode. Also add duplicate detection for tool calls — three consecutive calls with the same parameters are intercepted directly.
+> Scenario: an Agent repeatedly calls the same tool and fails to terminate. I would inspect repeated tool name/argument hashes and state transitions, then enforce configurable step, token, time, and cost budgets. Repeated-call detection can stop or re-plan the run, but values such as 50 steps or three repeats are policy examples, not source-backed production defaults.
 
 > The lesson: an Agent must have "brakes." You cannot trust the LLM to stop on its own. Hard caps like max_steps, max_tokens, and max_retries are the last-resort safeguards.
 
 ## 13.2 Tool Call Parameter Schema Mismatch
 
-> The symptom: the LLM occasionally produced tool parameters with missing or extra fields, causing tool execution errors. The root cause: the LLM didn't strictly adhere to the schema. The fix: add JSON schema validation before tool execution. On validation failure, enter repair — feed the error back to the LLM to fix the parameters, with a max of 2 repair attempts. If repair still fails, skip the tool call and inform the Agent the tool is unavailable.
+> Scenario: the model returns missing or extra tool arguments. I would validate against the tool schema before execution, return a bounded machine-readable error for repair, and cap repair attempts. If validation still fails, the run should skip or fail that action safely. The repair limit is chosen by policy and evaluation, not asserted as an existing production value.
 
 > The lesson: LLM output is not trustworthy and must be validated. Schema validation is the first line of defense for tool calls.
 
 ## 13.3 Memory Recall Introducing Conflicting Information
 
-> The symptom: the Agent gave contradictory answers — sometimes saying the user preferred A, sometimes B. The root cause: recall retrieved two conflicting memories, both injected into the prompt. The fix: add conflict detection during recall. For conflicting memories of the same type and scene, only inject the one with the latest timestamp, marking the older one as "historical reference." Also tell the Agent in the prompt: "in case of conflict, the latest memory takes precedence."
+> Scenario: recall returns two contradictory preferences. I would preserve both sources, distinguish mutable from immutable facts, rank by time, confidence, and source quality, and avoid silently treating “latest wins” as universal truth. Low-confidence conflicts should be withheld or surfaced explicitly.
 
 ## 13.4 Context Lost After Long Task Recovery
 
-> The symptom: after a long task was interrupted and recovered, the Agent forgot what it had done before. The root cause: the checkpoint only saved state, not context. On recovery, the context was empty. The fix: the checkpoint now saves not just state, but also a summary of the current prompt and the Mermaid task diagram. On recovery, the summary and diagram are re-injected so the Agent can see what step it was at.
+> Scenario: a recovered task has state but insufficient reasoning context. I would verify what the checkpoint persists, then restore a compact task state plus evidence references. The current In-House Agent Memory project has offload artifacts and Mermaid navigation; an independent Agent-engine checkpoint design is hypothetical and must not be described as already deployed.
 
 ## 13.5 Concurrent Writes to the Same Run Causing State Corruption
 
-> The symptom: occasionally, the same run would exhibit step skipping or duplicate execution. The root cause: two workers simultaneously grabbed the lease for the same run. The fix: use optimistic locking on steps. Each update carries an expected_version. If the version doesn't match, it means someone else changed it — abandon the current operation and re-read the state.
+> Scenario: a run skips or duplicates a step under concurrent workers. I would inspect lease ownership and event versions, then use a lease plus fencing token or optimistic version check. Side-effecting tools also need idempotency keys because state locking alone cannot guarantee exactly-once effects.
 
 ## 13.6 LLM Rate Limiting Causing Batch Failures
 
-> The symptom: during peak hours, multiple runs called the LLM simultaneously, triggering rate limits and batch failures. The root cause: no global LLM call rate limiting. The fix: add model-level token bucket rate limiting, bucketed by model. Requests exceeding the limit queue up and wait rather than failing immediately. Also add exponential backoff retry — 429 errors automatically wait for the retry-after duration.
+> Scenario: concurrent runs trigger provider rate limits. I would normalize provider quotas, apply per-model and per-tenant admission control, honor `retry-after`, and retry only within a total deadline. Queueing, fallback, and load shedding should depend on task priority and model compatibility.
 
 ## 13.7 Tool Results Containing Sensitive Information Leaked to Logs
 
-> The symptom: one tool returned a user password, which was logged. The root cause: tool results were written verbatim to event logs. The fix: tool results first pass through a redaction layer, matching field names against keywords like password, token, secret, key — matching fields are masked. Logs only record the redacted version. Full results are stored in the artifact store with access controls.
+> Scenario: a tool result contains a secret. I would treat tool output as sensitive by default, apply structured allowlists and redaction before logs, minimize retention, and restrict artifact access. Keyword matching alone is insufficient; nested fields, free text, and derived logs require tests and audit controls.
 
 ## 13.8 Model Routing Misconfiguration Causing Use of Expensive Models
 
-> The symptom: one day, LLM costs suddenly doubled. The root cause: the model routing configuration was mistakenly changed, routing tasks that should have used mini to GPT-4. The fix: add version control and approval to model routing configs — changes require review. Also add cost alerts — trigger an alarm when daily cost exceeds the threshold.
+> Scenario: cost rises after a routing change. I would correlate cost with route decisions, model versions, token volume, retries, and cache usage. Routing config should be versioned, reviewed, canaried, and reversible; alerts should use a verified baseline rather than an invented percentage threshold.
 
 ## 13.9 Context Compression Erasing Critical Information
 
-> The symptom: the Agent suddenly forgot a user's core constraint. The root cause: context compression turned the user's early critical instructions into a summary, and the summary lost the key details. The fix: mark "user explicit instructions" type messages as non-compressible during compression — only compress tool results and intermediate reasoning. User messages and system prompts must retain their originals.
+> Scenario: compression removes a critical user constraint. I would inspect the compression decision and recovered evidence, then protect system rules, the current goal, explicit constraints, unresolved decisions, and tool-call/result structure. Tool results are the safer first compression target; user messages should not be declared universally non-compressible without a measured policy.
 
 ## 13.10 Message Out-of-Order in Multi-Agent Collaboration
 
-> The symptom: in a multi-Agent collaboration scenario, Agent B received Agent A's messages in the wrong order. The root cause: the message bus had no ordering guarantee. The fix: messages carry a sequence number, and the receiver sorts by sequence before processing. Also use a FIFO queue for the message queue to guarantee ordering within the same conversation.
+> Scenario: one Agent observes another Agent's messages out of order. I would define ordering scope explicitly, attach sequence or event versions, make handlers idempotent, and buffer only within a bounded window. FIFO at the broker does not by itself guarantee end-to-end ordering across retries and multiple consumers.
 
 ---
 
 # 14. Behavioral Interview Questions: Collaboration, Conflict, Execution
 
-This chapter prepares behavioral questions, structured in STAR format (Situation, Task, Action, Result).
+This chapter separates personal STAR prompts from scenario answers. A STAR answer must come from the candidate's real design records, collaboration history, and verified role. Architecture alone cannot prove stakeholder positions, experiment chronology, delivery order, or rollout outcomes.
 
-## 14.1 Tell Me About a Time You Drove a Project with Vague Requirements
+## 14.1 Behavioral Prompt: Driving a Project with Vague Requirements
 
-> I'll talk about the Agent Memory system. Initially, the requirements were very vague — the goal was just one sentence: "We want the Agent to remember user habits and project context, and long tasks shouldn't be overwhelmed by tool logs." But what "memory" actually meant — storing chat history, doing vector retrieval, or context compression — people understood differently.
+> I would not use the project architecture as proof of a personal collaboration story. Before answering this as STAR, I need to confirm the real situation, stakeholders, my RACI, the decision I personally made, the artifact that records it, and the measured result.
 
-> There were two main disagreements at the time. One was on approach: some felt we should just build a vector database, chunk up historical conversations, and store them. The other was on pacing: the partner team was more concerned with integrating with OpenClaw quickly, while I worried that starting with just a flat vector database would lead to fragmented recall, no traceability, and summary pollution down the line.
+> If those facts are not available, my honest answer is: "I can walk through how I would decompose an unclear memory requirement, but I don't want to invent the people, decisions, sequence, or outcome. As a design approach, I would separate long-term memory from Context Offload, agree on quality, token, and traceability criteria, test fixed cases, and document what is current versus proposed."
 
-> I didn't argue about architecture directly. Instead, I first decomposed the problem into two verifiable objectives: for long-term memory, look at test-set answer accuracy; for short-term memory, look at token consumption and task pass rate under long sessions. Then I built a small POC comparing global summaries, pure vector retrieval, and L0–L3 tiered memory. The results were clear: pure summaries saved tokens but were untraceable; pure vector recall was too fragmented; the tiered approach, while slightly more complex, could simultaneously preserve both evidence and structure.
+> The WideSearch and PersonaMem figures may be quoted only as their recorded offline benchmark results. They do not validate this behavioral narrative.
 
-> In execution, I made a few trade-offs. First, the initial version didn't jump into a heavy distributed architecture — it ran on local SQLite first, with cloud vector DB adaptation planned for later. Second, for long-term memory, I delivered L0 originals, L1 atomic facts, and L3 Persona first, with L2 scenario aggregation filled in asynchronously later. Third, short-term context offloading was configurable and off by default — ensuring no impact on existing Agent behavior first, then gradually enabling compression strategies.
+## 14.2 Scenario Design: AST Facts vs. LLM-Inferred Relationships
 
-> The result: the project ultimately shipped as both an OpenClaw plugin and a Hermes Gateway integration. Long-term memory test-set answer accuracy improved from 48% to 76%. For short-term memory, token consumption in long tasks like WideSearch dropped up to 61%, with task pass rate also improving.
+> I would answer this as a design trade-off, not as a verified disagreement with a colleague. In CodeWiki's current implementation, parser and static-resolution output own deterministic structural facts. Cross-file resolution that is not certain can carry fields such as `confidence`, `reason`, `resolution_tier`, and `is_inferred`; that does not mean an LLM is the source of every inferred edge.
 
-> Looking back, I think what I'd improve: from the very beginning, I should have defined evaluation criteria and online metrics more formally — pre-agreeing on metrics like accuracy, token, latency, and fallback success rate, rather than filling them in after the POC. Also, for complex modules like the offload hook and context compression strategy, I'd write RFCs and sequence diagrams earlier to help partner teams understand the boundaries faster.
+> If I were evaluating an LLM-assisted resolver, I would build a labeled set of call, import, route, and inheritance relationships, then compare precision, recall, reproducibility, latency, cost, and failure behavior. I would keep deterministic facts separate from model suggestions and never promote a suggestion without provenance and validation.
 
-## 14.2 Tell Me About a Time You Had a Technical Disagreement with a Colleague
+> The current artifacts do not document a real interpersonal dispute or a completed head-to-head evaluation. I would use a personal episode for a behavioral question only after confirming the people, my role, the evidence, and the outcome.
 
-> I'll talk about a disagreement in CodeWiki: whether to use LLMs to judge code relationships. A colleague felt LLMs are powerful enough now — just let the LLM read the code and determine call relationships. That seemed easier, no need for AST and graphs. I felt that wouldn't work, because LLM-judged relationships are unverifiable, irreproducible, and LLMs can't read large repos.
+## 14.3 Scenario: How Would You Handle a Sudden Agent Cost Regression?
 
-> I didn't dismiss it outright. Instead, I ran a comparison experiment. For the same piece of code, we compared call relationships from AST parsing against those judged by the LLM. The result: the LLM fabricated non-existent calls, missed real calls, and was unstable on cross-file relationships. The AST, while not 100% on cross-file resolution, was deterministic for whatever it did resolve.
+> I would start by confirming the regression and segmenting it by model, route, prompt version, tenant, and task type. Then I would use `trace_id` to split input tokens, output tokens, retries, tool-result volume, and provider-reported cached tokens. I would not change code until I knew which component moved.
 
-> In the end, everyone agreed: deterministic relationships use AST; inferred relationships use the LLM but are marked with confidence and is_inferred. That's CodeWiki's current design.
+> If traffic and request shape were stable but cache reuse changed, I would diff adjacent prompts and test whether dynamic recall had entered a reusable prefix. That would be a hypothesis, not a conclusion from one dashboard.
 
-> The lesson: technical disagreements shouldn't be settled by arguing. Run comparison experiments and let the data speak. At the same time, respect the other person's idea — LLMs genuinely can do some relationship judgment. The key is putting it in the right place.
+> I would reproduce it on a fixed benchmark, compare a stable-prefix variant with a dynamic-prefix variant, and measure quality, cached tokens, latency, and total cost. If the evidence supported the change, I would canary it, watch rollback metrics, and only then expand.
 
-## 14.3 Tell Me About a Time You Handled a Production Incident
-
-> I'll talk about the prompt cache busting case. That day, I received an alert: Agent service input token cost had risen 40%. I didn't rush to change code. Instead, I first broke down the chain by trace_id to see which link was abnormal.
-
-> I found the cache hit rate had dropped from 70% to 30%. After ruling out traffic, user question length, and tool call count — none had changed — I judged it wasn't users getting more complex. Then I broke down the prompt diff and found the system prompt was changing every turn. The root cause: L1 relevant memories were being injected into system context.
-
-> I ran an A/B test: one version kept L1 in system context; the other moved L1 to the user prompt prefix. After comparison, answer quality didn't drop but cache hits recovered and cost dropped. Then I rolled out the fix fully.
-
-> The whole process from alert to fix was roughly 4 hours. The lesson: in a production incident, locate first, fix second — don't rush to change code. Also, cost alerts must be sensitive — a 40% fluctuation must be caught immediately.
+> The lesson is diagnostic discipline: confirm, isolate, reproduce, mitigate, and verify. I would not claim a specific recovery time or alert threshold without an operational record.
 
 ## 14.4 Tell Me About a Learning Experience
 
-> I'll talk about learning GraphRAG. Initially, I only knew plain RAG — chunks, vectors, retrieval. While building CodeWiki, I found plain RAG wasn't enough for code understanding, because code relationships matter. I started reading Microsoft's GraphRAG paper and understood the ideas of entity extraction, community detection, and hierarchical summarization.
+> I should use this as a personal learning story only if the chronology is true and I can describe what I personally read and changed. The source-verifiable technical point is that plain chunk retrieval is not enough for many code questions because calls, imports, routes, and inheritance matter.
 
-> But Microsoft's GraphRAG is document-oriented. I couldn't apply it directly. I adapted it to be code-oriented: entities became AST symbols, relationships became code edges (calls, imports, inherits), and communities were computed by running Louvain on the code graph. That's CodeWiki's GraphRAG.
+> In CodeWiki's adaptation, entities become AST symbols, relationships become code edges such as calls, imports, and inheritance, and graph communities support higher-level navigation and context. I would avoid claiming that I personally originated every part of that adaptation until the project RACI is confirmed.
 
 > The lesson: learning isn't about copying — it's about understanding the principles and then adapting them to your own scenario. Papers give ideas; engineering makes them real.
 
@@ -1218,11 +1216,11 @@ This chapter prepares behavioral questions, structured in STAR format (Situation
 
 Interviewers may ask technology-choice questions like "why SQLite instead of PostgreSQL," "why tree-sitter instead of LSP."
 
-## 15.1 Why Agent Memory Uses SQLite Instead of PostgreSQL
+## 15.1 Why In-House Agent Memory Uses SQLite Instead of PostgreSQL
 
-> Agent Memory is a local-first project — developers run it locally, and zero-config is paramount. SQLite is a single file, zero config. In WAL mode, reads don't block writes. sqlite-vec handles vectors, FTS5 handles full-text search — one database file covers three indexing needs. PostgreSQL requires starting a service, configuring connections, managing extensions — too heavy for local development.
+> In-House Agent Memory is local-first. SQLite is a single file and requires no separate service. In WAL mode it supports concurrent readers while a writer is active; sqlite-vec covers vector search and FTS5 covers full-text search. PostgreSQL requires a service, connection management, and extensions, which adds operational weight for local use.
 
-> When scaling to production, migration to CMBVDB or PostgreSQL is straightforward because IMemoryStore abstracts the storage interface — upper layers don't care about the underlying. The core of this decision is: "let it run locally first, then scale to production."
+> `IMemoryStore` reduces coupling at the call sites, and the current code also has a TCVDB backend. But migrating existing data is not automatically straightforward. I would still need schema and metadata mapping, embedding-model and dimension compatibility, index creation, backfill, reconciliation between JSONL and the online store, identity-scope checks, cutover validation, and rollback. The abstraction helps, but it does not remove data-migration work.
 
 ## 15.2 Why CodeWiki Uses tree-sitter Instead of LSP
 
@@ -1236,7 +1234,7 @@ Interviewers may ask technology-choice questions like "why SQLite instead of Pos
 
 > LLMGateway wraps LiteLLM one more layer, adding task-type routing and caching. Business services never touch SDKs directly. This way, switching models only changes config, not code.
 
-## 15.4 Why Agent Memory Uses Mermaid Instead of JSON for Task Diagrams
+## 15.4 Why In-House Agent Memory Uses Mermaid Instead of JSON for Task Diagrams
 
 > Mermaid expresses topology and state with very few tokens — more compact than natural language summaries, and more human-readable than JSON. The Agent sees a diagram, not a pile of fields, and understands it faster. Plus, Mermaid renders directly — during debugging, I can see exactly which step the task is at.
 
@@ -1244,19 +1242,19 @@ Interviewers may ask technology-choice questions like "why SQLite instead of Pos
 
 ## 15.5 Why Use RRF Instead of a Reranker
 
-> RRF requires no additional LLM call — both cost and latency are low. A reranker calls the LLM on every retrieval, doubling latency and cost. RRF is sufficient for v1; an optional reranker can be added later as an enhancement.
+> RRF fuses ranks without a separate learned ranking stage, so the current path avoids an additional model invocation. A reranker does not have to be an LLM; it could be a cross-encoder or another specialized ranking model. It would add latency and compute according to the candidate count and selected model, but there is no basis for claiming that it always doubles cost or latency.
 
-> RRF's downside is that it's unsupervised — it doesn't learn user preferences. If personalized ranking is needed, a reranker is more suitable. But for the current scenario, RRF's stability is sufficient.
+> The honest trade-off is that RRF is simple and score-scale agnostic, while a trained reranker may use richer query-document interactions. The current implementation uses RRF, but the project material does not contain a controlled RRF-versus-reranker comparison, so sufficiency and incremental benefit are not established. I would decide with Recall@K, MRR or NDCG, final-answer quality, latency, and cost.
 
 ## 15.6 Why AI Weekly Report Uses a Control Table Instead of a Message Queue
 
-> The AI Weekly Report is an internal bank end-of-day batch, not a real-time system. A control table is simple and reliable enough. Failed states are retained in the database, and the next batch backtracks for compensation. Message queues (Kafka, RabbitMQ) are for real-time streams — over-engineering for an end-of-day batch.
+> The AI Weekly Report is an in-house end-of-day batch, and its core control state is naturally relational: date, download status, and analysis status. A control table makes the current compensation scan and database transaction boundaries easy to express. A message queue is not only for real-time streams, so I would not dismiss it categorically; it becomes useful when work must be decoupled, independently retried, or horizontally consumed.
 
-> The advantage of a control table: transactional consistency is easy to guarantee — data persistence and status updates in the same transaction. Message queues require handling exactly-once semantics, consumption acknowledgments, and dead-letter queues — far more complexity.
+> The boundary is that a control table alone does not provide atomic worker claiming, exactly-once external effects, or reliable push delivery. The current `P/S` state and `INSERT IGNORE` are partial controls. If the workflow needs stronger concurrency and delivery guarantees, I would add leases and a durable send state or Outbox before deciding whether a queue is justified.
 
 ---
 
-# 16. More System Design Questions
+# 16. More Scenario-Based System Design Questions
 
 ## 16.1 Design an Agent Evaluation System
 
@@ -1308,7 +1306,7 @@ Interviewers may ask technology-choice questions like "why SQLite instead of Pos
 
 ## 17.1 How to Allocate a Three-Hour Interview
 
-> For a three-hour technical deep-dive interview, I'd allocate time like this: first 30 minutes for self-introduction and project overview, making the main thread clear. Middle 90 minutes for project deep-dives — I expand on whatever the interviewer probes, with the focus on Agent Memory and CodeWiki. Next 45 minutes for system design questions, like designing an Agent execution engine. Final 15 minutes for asking the interviewer questions.
+> For a three-hour technical deep-dive interview, I'd allocate time like this: first 30 minutes for self-introduction and project overview, making the main thread clear. Middle 90 minutes for project deep-dives — I expand on whatever the interviewer probes, with the focus on In-House Agent Memory and CodeWiki. Next 45 minutes for system design questions, like designing an Agent execution engine. Final 15 minutes for asking the interviewer questions.
 
 > During project deep-dives, I don't proactively unpack every detail — I wait for the interviewer to follow up before diving deeper. Each answer is controlled to 2–3 minutes: conclusion first, then details. If the interviewer probes further on a point, expand to 5 minutes.
 
@@ -1320,7 +1318,7 @@ Interviewers may ask technology-choice questions like "why SQLite instead of Pos
 
 ## 17.3 Three Sentences to Proactively Emphasize
 
-> First: when I work on Agents, I don't just call LLMs — I design backend systems around state, tools, memory, context, and observability. Second: I tend to let deterministic code own the facts, and let the LLM own reasoning and expression. Third: I've done post-launch cost and stability governance — for example, the case where prompt cache was busted by dynamic memory.
+> First: when I work on Agents, I don't just call LLMs — I design backend systems around state, tools, memory, context, and observability. Second: I tend to let deterministic code own the facts, and let the LLM own reasoning and expression. Third: I can reason about post-launch cost and stability governance — for example, how I would diagnose prompt-cache instability caused by dynamic memory.
 
 > These three sentences run through the entire interview. Anchor every project deep-dive back to these three points.
 
@@ -1336,14 +1334,14 @@ Interviewers may ask technology-choice questions like "why SQLite instead of Pos
 
 # 18. One-Page Cheat Sheet (Extended Edition)
 
-## Agent Memory Supplement
+## In-House Agent Memory Supplement
 
-- Prompt Engineering: L1 three-stage, L2 scenario aggregation, L3 Stability Notes, JSON four-level degradation, temperature by task.
-- Concurrency: three-layer isolation, L3 global serial with pending merging, checkpoint per-file lock, runner/pipeline state separation.
-- Stress Testing: capture p95 15ms, recall p95 280ms, L1 p95 4s, WideSearch token -61%.
-- Failure Modes: 10 real cases — prompt cache busting, feedback loop, cursor rollback, dimension mismatch, JSON blocking, node explosion, scheduler erroneous destruction, deferred embedding, jieba degradation, persona contamination.
-- Security: two categories of prompt injection defense, sensitive information handling, multi-tenant approach, data retention compliance.
-- Evaluation: 50 sessions, 200 questions, 48% to 76%, baseline comparison, error analysis, online metrics.
+- Prompt Engineering: staged L1 extraction, L2 scene aggregation, and a conservative L3 Persona prompt. There is no current `stability` field or hard stability gate.
+- Concurrency: per-Session scheduling state, Manager-level shared serial queues, L3 pending merging within one Manager instance, and an in-process per-file Checkpoint lock. This is not global or cross-process serialization.
+- Benchmarks: WideSearch recorded 33% -> 50% pass rate and 221.31M -> 85.64M tokens for its stored configuration. Do not present this as an online average.
+- Failure Modes: source-observed code risks and scenario drills; do not call all ten events that actually happened.
+- Security boundary: known injected-block sanitization and prompt separation exist, while semantic injection defense, complete sensitive-data detection, enterprise multi-tenancy, and end-to-end deletion remain gaps.
+- Evaluation: PersonaMem recorded 48% -> 76% final-answer accuracy for its stored configuration; exact dataset breakdown requires the benchmark artifact.
 
 ## CodeWiki Supplement
 
@@ -1352,7 +1350,7 @@ Interviewers may ask technology-choice questions like "why SQLite instead of Pos
 - Communities: empirical edge weights, algorithm degradation chain, multi-level resolution, community naming with cache.
 - Mermaid: server-side generation, syntax validation, node ID validation, graph layering.
 - Token: budget 8000, chunk ranking, context_pack structure.
-- Stress Testing: Rust 36K files 300K nodes, VS Code 160K nodes 3.79M edges, incremental reuse 90%.
+- Stress Testing: Rust 36K files / roughly 300K nodes; VS Code roughly 160K nodes / 3.79M edges. Warm-file reuse for Rust / VS Code / Superset was 99.7% / 96.9% / 98.2%, but end-to-end warm speedup was only 1.29x / 1.06x / 1.51x.
 - Failure Modes: tree-sitter version, incremental indirect effects, LLM fabricating refs, Mermaid syntax, community instability, cache pollution, OOM, pgvector, Lite expiration, translation breaking code.
 
 ## Agent Engine Supplement
