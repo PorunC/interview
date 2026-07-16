@@ -1,6 +1,6 @@
 # LangChain、LangGraph 与主流 AI 框架面试题
 
-> 版本口径：截至 2026-07-16 联网核对。题目来源包括 LangChain/LangGraph 官方文档、2026 年公开面试题库，以及本目录记录的实际面试追问。技术答案以官方当前文档为准；公开题库只用于识别多个题库重复出现的主题，不代表严格的真实面试频率统计。
+> 版本口径：截至 2026-07-17 联网核对。题目来源包括 LangChain/LangGraph 官方文档、其他主流框架官方文档、2026 年公开面试题库，以及本目录记录的实际面试追问。技术答案以官方当前文档为准；公开题库只用于识别重复出现的题型，不代表严格的真实面试频率统计。
 >
 > 项目口径：CodeWiki、Agent Memory 都按公司内部项目回答；没有直接使用 LangGraph 的地方必须如实说明，不能为了迎合题目把显式服务流程包装成 LangGraph。
 
@@ -52,6 +52,10 @@ flowchart TB
 | “Streaming 只有 values/updates” | 旧 `stream_mode` 仍可用；当前新项目优先事件流 `version="v3"` 的独立投影 |
 | “MCP 远程传输就是旧 HTTP+SSE” | 旧 HTTP+SSE 已被 Streamable HTTP 替代；当前还要讲 Origin 校验、Session、事件恢复和 OAuth 2.1 |
 | “A2A 只有 JSON-RPC，Task 只能轮询” | A2A 1.0 的规范源是 Protobuf，公开了 JSON-RPC、REST、gRPC Binding，并支持 Stream、Subscribe 和 Push |
+| “OpenAI Agents SDK 完全没有恢复或 Durable 能力” | 旧口径。核心有 RunState/HITL，官方还有 Dapr、Temporal、Restate、DBOS 集成；但普通 Runner 不自动提供 Exactly-once |
+| “CrewAI Flow 开了 `@persist` 就是完整 Durable Workflow” | `@persist` 支持 State 快照、Resume 和 Fork，但外部副作用、并发和业务事务仍要自己治理 |
+| “Google ADK 有多语言 SDK，所以 Graph 能力完全一致” | 错。当前 ADK 2.0 Graph Workflow 官方只标注 Python 和 Go，其他能力也要按目标 SDK 逐项核对 |
+| “Deep Agents 的文件权限就等于 OS Sandbox” | 错。内置文件工具权限只约束对应 Tool；任意命令执行仍需要进程、网络、挂载和资源级隔离 |
 
 ---
 
@@ -955,7 +959,9 @@ flowchart LR
 
 > Runner 会把输入交给当前 Agent；模型返回最终输出就结束，返回 Tool Call 就执行工具并把结果送回模型，发生 Handoff 就切换当前 Agent，再继续循环。同步、异步和流式只是调用方式不同，生产仍要设置最大 Turn、工具次数、总时间和费用预算，不能只等模型自己停。
 
-> Sessions 可以保存对话历史，Tracing 可以记录运行过程，但这不等于分布式 Durable Execution。进程崩溃后从哪个业务步骤恢复、外部副作用是否执行过、任务如何租约和重试，应用仍要用数据库或工作流引擎设计。需要复杂 Checkpoint 图时，我会组合 LangGraph、Temporal 一类运行时，而不是硬说 SDK 已经包办。
+> 这个问题现在不能再简单回答“完全没有”。核心 `Runner`、Session 和 RunState 能管理对话与审批暂停恢复；官方还列出了 Dapr、Temporal、Restate、DBOS 的 Durable 集成。但 Durable 能力来自这些集成运行时，不是普通 `Runner` 自动把任意业务代码变成可恢复事务。进程崩溃后从哪个业务步骤恢复、外部副作用是否执行过、任务怎样租约和重试，仍要按所选运行时设计并验证。
+
+> 所以我的准确表述是：SDK 已经有官方 Durable 接入路径，但不能把“装了 SDK”说成“Exactly-once 已解决”。如果流程需要显式图状态，我会评估 LangGraph；如果是跨天等待、活动重放和强工作流语义，我会评估 Temporal、Restate、DBOS 或 Dapr，并继续给外部写操作加幂等键和执行账本。
 
 ### Q103.【OpenAI Agents SDK】Handoff 和“把 Agent 当 Tool”有什么区别？
 
@@ -1067,7 +1073,9 @@ flowchart LR
 
 > Crew 擅长用 Role、Goal、Task 表达自主协作，适合研究、分析和内容生成；Flow 用显式 State、Start、Listener 和 Router 管确定性流程。生产里我会让 Flow 负责输入校验、权限、状态、重试、审批、落库和结束条件，把一个边界清楚的开放任务交给 Crew，拿到结构化结果后再回 Flow 校验。
 
-> 这样既保留多 Agent 的灵活性，又不会让角色对话直接控制付款、发布或删库。Crew 失败可以重跑该子任务，主业务状态仍由 Flow 和业务库掌握。不能把“有 Flow”直接等同于 Durable Workflow，跨进程恢复和副作用仍要核对具体持久化方案。
+> 这样既保留多 Agent 的灵活性，又不会让角色对话直接控制付款、发布或删库。CrewAI Flow 当前提供 `@persist`，可以保存结构化或非结构化 State；传入已有 State ID 可以 Resume，`restore_from_state_id` 可以从旧快照 Fork 新运行。但我仍不会把“开了 `@persist`”直接等同于 Exactly-once Durable Workflow：恢复点粒度、并发写、外部副作用和数据库事务仍要单独核对。
+
+> 我的做法是把 Flow 快照当控制流恢复依据，把订单、审批、发布等业务真相放业务库；副作用用稳定动作 ID 和执行账本防重。Resume 与 Fork 也要分清，Fork 应使用新的 State ID，不能让两个分支继续共用一个持久化键互相覆盖。
 
 ### Q117.【CrewAI】Hierarchical Process 有 Manager，就一定比 Sequential 更好吗？
 
@@ -1277,6 +1285,246 @@ flowchart LR
 
 > Push Notification 本质是远端 Agent 回调我的 Webhook。我会用 HTTPS、签名或 mTLS、Timestamp、Nonce、Task ID 和事件 ID 防伪造与重放，先持久化去重再处理；回调 URL 要经过 Allowlist 和 SSRF 防护。Webhook 只提示“状态可能变化”，关键业务仍应主动 `GetTask` 核对，不能收到一个 completed 字符串就直接执行本地副作用。
 
+### Q143.【LangChain 新版必问】Context Engineering 到底是什么，为什么不只是 Prompt Engineering？
+
+**口语化回答：**
+
+> 我理解的 Context Engineering，是在 Agent 每一次模型调用前，决定模型现在应该看到哪些指令、消息、工具、数据和输出约束，并且控制这些内容的格式和优先级。Prompt Engineering 主要关注指令怎么写，Context Engineering 还包括历史怎么裁剪、工具怎么动态暴露、检索证据怎么选择、长期记忆怎么注入，以及哪些信息根本不该给模型。
+
+> 实际排障时，我不会先怪模型。我会先看 Trace：模型有没有拿到正确证据，工具描述是否误导，历史里有没有冲突指令，权限上下文有没有混进用户文本。然后用固定评测集比较调整前后的任务成功率、工具选择、引用正确性、Token、延迟和安全失败，不能凭一两个 Demo 判断上下文更好了。
+
+### Q144.【Context Engineering】Model Context、Tool Context、Lifecycle Context 怎么区分？
+
+**口语化回答：**
+
+> Model Context 是某一次模型调用真正看到的内容，比如 System Prompt、消息、可用工具、模型和 Response Format，它可以只对本轮临时生效。Tool Context 是工具能读取和写入的 State、Store、Runtime Context，以及工具返回给 Agent 的结果。Lifecycle Context 是模型调用和工具调用之间的处理，例如摘要、Guardrail、日志、重试和人工审批，它往往会永久修改后续运行看到的状态。
+
+> 我会把“临时展示”和“持久写入”分开。Trim 一次模型输入不等于删除 Checkpoint 历史；Summarization Middleware 如果回写 State，就会影响后续轮次。用户身份、权限和密钥只从可信 Runtime Context 注入，不能因为用户在消息里写了“我是管理员”，就把它升级成 Tool Context 的真实权限。
+
+### Q145.【Context Engineering】动态 Prompt、动态 Tool、动态 Model 和动态输出 Schema 怎么做才安全？
+
+**口语化回答：**
+
+> 我会让 Middleware 根据可信 State、Store 和 Runtime Context，在每轮调用前选择 Prompt、工具集合、模型和输出 Schema。比如只读用户看不到写工具，普通问题走低成本模型，复杂问题再升级；不同业务动作返回不同的 Pydantic Schema。这样是在服务端缩小模型的选择空间，不是把所有能力都交给模型自己挑。
+
+> 动态选择本身也要可测试、可追踪和有默认路径。租户、角色、预算和环境不能只从自然语言推断；Tool List 变化要记录原因；模型升级和 Schema 切换要有版本。没有匹配规则时我宁可拒绝或走最小权限配置，也不会默认暴露全部工具。
+
+### Q146.【多 Agent 新版题】Subagents、Handoffs、Skills、Router、Custom Workflow 怎么选？
+
+**口语化回答：**
+
+> Subagents 是主 Agent 把封闭任务当工具委派出去，结果再回主 Agent，适合并行研究和上下文隔离；Handoff 是把当前对话控制权交给另一个专家，适合客服分诊后由专家直接面对用户；Skills 是一个 Agent 按需加载专业指令和知识，适合不想增加 Agent 数量但又要渐进加载上下文；Router 是先分类再把请求发给一个或多个专家；Custom Workflow 则用 LangGraph 把确定性步骤和 Agent 节点显式组合。
+
+> 我选择时会问四件事：谁最终面向用户、任务能不能并行、是否需要连续多跳、专业上下文有多大。简单任务优先单 Agent 加工具；只是缺一段领域知识时先用 Skill；需要强隔离或并行才上 Subagent；业务步骤明确就直接用 Workflow，不能为了“多 Agent”多做几轮模型调用。
+
+### Q147.【多 Agent 深挖】为什么说 Subagent 的核心价值是 Context Isolation？
+
+**口语化回答：**
+
+> Subagent 每次在新的上下文里完成一个边界清楚的任务，主 Agent 不需要看到它的全部检索过程、工具日志和中间推理，只接收一份压缩结果。这样能避免多个专业领域的长 Prompt 相互污染，也能让不同子任务并行执行。代价是每次委派都要重新建立上下文，跨调用记忆不能默认存在。
+
+> 我会把委派接口设计成窄 Schema：输入包含目标、范围、预算、允许的数据和截止条件；输出包含结论、证据引用、不确定性和失败状态。主 Agent 不能只收一句结论就相信，更不能让子 Agent 把自己的权限带回来。需要追溯时保存原始 Artifact 或 Trace 引用，而不是把所有中间内容重新塞回主上下文。
+
+### Q148.【Deep Agents】Deep Agents、`create_agent` 和手写 `StateGraph` 怎么选？
+
+**口语化回答：**
+
+> Deep Agents 是基于 LangChain 和 LangGraph 的高层 Agent Harness，已经组合了规划、虚拟文件系统、Skills、Memory、摘要与卸载、Subagent 和 HITL。常规工具 Agent 只需要少量 Middleware 时，我会用 `create_agent`；复杂业务要完全控制 State、Edge、Checkpoint 和恢复点时，我会手写 `StateGraph`；任务天然需要文件操作、长时间研究和子任务隔离时，才优先评估 Deep Agents。
+
+> 高层 Harness 不是免费能力。默认工具面更大、上下文规则更多，版本变化和安全审计成本也更高。我会先做最小 PoC，确认文件权限、沙箱、恢复、流式事件和成本都满足要求，再决定是否采用，不能因为开箱功能多就把业务控制权全部交出去。
+
+### Q149.【Deep Agents 安全】虚拟文件系统权限和真正的 Sandbox 是一回事吗？
+
+**口语化回答：**
+
+> 不是。虚拟文件系统把 `read_file`、`write_file`、`edit_file`、`glob`、`grep` 等能力映射到可插拔 Backend，权限规则可以限制模型通过这些内置工具访问哪些路径。Sandbox 解决的是代码或命令真正在哪个隔离环境执行，包括进程、网络、文件挂载、CPU、内存和生命周期。Tool Allowlist 只能缩小工具面，不能替代操作系统级隔离。
+
+> 尤其要注意，官方文档明确区分了文件工具权限和带 `execute` 的 Sandbox Backend。只要 Agent 能执行任意命令，我就会把它放在低权限、短生命周期的沙箱里，默认不挂凭证和宿主目录，网络按 Allowlist 开放，限制资源并扫描产物。子 Agent 还要单独核对权限继承，不能默认主 Agent 的限制一定自动覆盖所有声明式子 Agent。
+
+### Q150.【Deep Agents 上下文】Skills、Memory、Summarization 和 Context Offloading 有什么区别？
+
+**口语化回答：**
+
+> Skills 是按需加载的专业工作流和知识，启动时只暴露简短描述，需要时再读完整内容；Memory 是跨会话都要保留的稳定指令、偏好和约定，通常在启动时加载；Summarization 是把旧对话压缩成更短的语义摘要；Context Offloading 是把大工具结果或中间材料放到文件或外部存储，只在上下文里保留索引和必要片段。
+
+> 我不会把四者混成一个“记忆库”。Skill 要有版本和适用条件，Memory 要有来源、权限、过期和删除，摘要要能回溯原始记录，卸载对象要有稳定引用和租户隔离。否则 Token 是省了，但错误事实、越权数据和过期规则会被长期放大。
+
+### Q151.【LangGraph Runtime】`Runtime`、`context_schema` 和 State 到底怎么分？
+
+**口语化回答：**
+
+> State 是图的业务进度，会被 Node 更新并可能进入 Checkpoint；`context_schema` 定义一次运行传入的可信只读上下文，比如 Tenant、User、环境和服务配置；Node 通过 `Runtime` 访问这些 Context，以及 Store、Stream Writer、Execution Info、Heartbeat 和协作停机控制。简单说，State 是“任务发生了什么”，Runtime 是“这次任务在什么受控环境里运行”。
+
+> 数据库连接、HTTP Client、密钥和权限对象不应该序列化进 State。反过来，审批状态、业务版本和需要恢复的步骤也不能只放 Runtime，因为进程重启后可能丢失。Runtime Context 仍然要由服务端创建并鉴权，不能把前端 JSON 原样当成可信 Context。
+
+### Q152.【LangGraph State】Input Schema、Output Schema、Overall State 和 Private State 有什么作用？
+
+**口语化回答：**
+
+> Overall State 定义图内部可以使用的主要 Channel；Input Schema 限制调用方允许传进来的字段；Output Schema 限制图最终对外返回的字段；Node 还可以声明 Private State Channel，在内部节点之间传递临时数据。这样可以让外部契约更窄，同时保留图内部需要的中间状态。
+
+> 但 Schema Filter 不是安全边界。内部字段即使不出现在最终 Output，也可能进入 Checkpoint、Trace 或日志，所以敏感数据仍要最小化、脱敏和设置保留期。Private State 也不代表只有某个 Node 能读，我还会靠模块边界、权限和测试防止误用。
+
+### Q153.【LangGraph Reducer】什么时候用 `Overwrite`，它和普通 Reducer 有什么不同？
+
+**口语化回答：**
+
+> Reducer 定义旧值和多个更新怎么合并，比如列表追加、消息按 ID 合并；没有自定义 Reducer 时通常是覆盖语义。`Overwrite` 用在某个 Channel 已经配置了 Reducer，但这一次更新明确要绕过合并、直接替换整个值的场景，例如用压缩摘要替换旧的聚合内容。
+
+> 我会把 `Overwrite` 当成少量、显式的控制动作，因为并行分支同时覆盖同一个 Channel 很容易产生歧义或冲突。它也不会删除外部存储里的旧数据，更不会自动解决并发。使用前要确认唯一写入者、Super-step 顺序和恢复后的重放结果。
+
+### Q154.【LangGraph Cache】Node Cache 和 Checkpoint 有什么区别，缓存键怎么设计？
+
+**口语化回答：**
+
+> Node Cache 是根据 Node 输入复用计算结果，目的是减少重复耗时和费用；Checkpoint 保存图在 Super-step 边界的状态和待执行任务，目的是恢复、历史和 HITL。缓存命中不能证明这个 Thread 已经执行过该业务步骤，Checkpoint 也不应该被当成通用结果缓存。
+
+> 我只缓存近似纯函数 Node。Key 至少要包含真正影响结果的输入、Tenant、模型与参数、Prompt 或代码版本、知识库版本和权限范围，敏感结果还要加密并限制 TTL。写库、付款、发消息这类副作用 Node 不靠 Cache 防重，而是用业务幂等键和执行账本。
+
+### Q155.【LangGraph 循环】`RemainingSteps` 比只捕获 `GraphRecursionError` 好在哪里？
+
+**口语化回答：**
+
+> `recursion_limit` 控制的是最大 Super-step 数，不是 Python 函数递归深度。只在外层捕获 `GraphRecursionError`，说明图已经被强制终止；把 `RemainingSteps` 放进 State 后，Node 可以在剩余步骤很少时主动停止继续研究，转到总结或降级节点，返回当前最好的部分结果。
+
+> 我会同时做两层：图内用 `RemainingSteps` 优雅收口，图外仍捕获异常作为最后兜底。官方当前默认值虽然已经比旧资料大，但生产必须按业务显式设置更小的步骤、工具、时间和费用上限；默认 1000 绝不能理解成可以放心循环 1000 次模型调用。
+
+### Q156.【LangGraph 运行时】Heartbeat 和协作停机能解决哪些问题，不能解决哪些问题？
+
+**口语化回答：**
+
+> 当前 Runtime 可以给 Node 提供 Heartbeat 和协作停机相关控制，适合长 Node 主动刷新空闲超时，并在服务 Drain 时尽快走到可保存的边界。它解决的是“运行时知道任务还活着”和“协作式结束”，不是强制杀掉任意阻塞调用，也不自动保存第三方系统的中间状态。
+
+> 我会把长任务再拆成可恢复 Step，给模型、HTTP、数据库和子进程设置独立 Deadline；容器停机先摘流量、停止领新任务，再等待当前 Step 完成或保存 Lease。超过宽限期仍可能被强杀，所以恢复要靠持久 Checkpoint，外部副作用仍靠幂等和状态核对。
+
+### Q157.【OpenAI 当前选型】什么时候直接用 Responses API，什么时候用 Agents SDK？
+
+**口语化回答：**
+
+> 如果流程很短，我想自己掌握 Tool Dispatch、状态和重试，或者只需要一次模型响应，我会直接用 Responses API。需要现成 Agent Loop、Function Tool、Handoff、Guardrail、Session、HITL、Tracing，或者要把多个 Agent 组合起来时，我会评估 Agents SDK。SDK 默认也可以使用 Responses API，它们是上下层关系，不是二选一的模型接口。
+
+> 我不会整个平台只选一种。确定性、性能敏感的路径可以直接调 API，开放工具任务用 SDK；无论哪条路径，业务鉴权、幂等、预算和评测都留在自己的服务边界里，避免框架一换，核心业务语义也跟着重写。
+
+### Q158.【OpenAI Agents SDK 新题】Sandbox Agents 解决什么，当前能不能直接当稳定生产能力？
+
+**口语化回答：**
+
+> Sandbox Agents 给 Agent 一个可持续的工作区，能搜索和编辑文件、执行命令、生成 Artifact，并通过 Manifest、Capability、Sandbox Client、Snapshot 或 Session State 恢复工作区。它适合代码、文档和仓库类长任务，不只是把一个 Python 函数注册成 Tool。
+
+> 截至这次核查，官方仍把它标成 Beta，所以我会锁版本、隔离试点、做数据和权限审计，不能默认 API 和行为已经稳定。持久工作区也不等于业务工作流完整恢复；文件快照、对话 RunState、业务数据库和外部副作用分别是什么真相源，要在设计里说清楚。
+
+### Q159.【OpenAI Agents SDK Durable】官方已有 Dapr、Temporal、Restate、DBOS 集成，还需要自己做什么？
+
+**口语化回答：**
+
+> 官方集成能把 Agent Run 放进可恢复的工作流环境，支持长等待、失败重试、进程重启和人工审批。但我还要定义每个 Activity 的边界、哪些输入输出可以序列化、重放时哪些代码必须确定性、工具副作用怎么幂等，以及版本升级后旧实例怎么继续。
+
+> 我会先根据基础设施选一个运行时，而不是把四个都接上。然后做进程 Kill、网络超时、重复回调、审批跨天和版本升级测试，断言最终业务状态和副作用次数。能恢复 Agent 对话不等于订单只扣一次款，这两件事必须分别证明。
+
+### Q160.【CrewAI Flow】`@persist` 的 Resume 和 Fork 有什么区别？
+
+**口语化回答：**
+
+> Resume 是传入已有 State ID，先 Hydrate 最新快照，再沿用同一个 `flow_uuid` 执行；Fork 是从某个旧 State ID Hydrate 内容，但默认给新运行分配新的 State ID，让后续写入形成独立 Lineage。它们恢复的是持久化 State，不是程序计数器或“精确从下一行继续”，对应方法仍可能重跑。
+
+> 我不会让两个 Fork 继续共用同一个持久化 Key，否则后写会覆盖前写。SQLite 默认 Backend 更适合本地和单机验证，分布式生产还要评估并发、事务、锁、备份和自定义 FlowPersistence。恢复后的方法可能重跑，发邮件、写库和发布仍要幂等。
+
+### Q161.【Haystack Pipeline】Loop、AsyncPipeline、类型校验和序列化分别解决什么？
+
+**口语化回答：**
+
+> Haystack Pipeline 用 Component 的命名输入输出显式连接数据流，连接时会校验组件、端口和类型；Loop 适合“生成、校验、不通过再修复”，但必须有最大运行次数；AsyncPipeline 会在依赖允许时并行跑 Retriever、模型或其他 IO 分支；序列化把 Component 配置和连接保存成可加载定义。
+
+> 我不会因为 Pipeline 能序列化，就认为运行到一半也能自动恢复。配置序列化、运行状态持久化和外部副作用是三件事。并行还要限制并发和总预算；Loop 的 Validator 要有确定性标准；自定义 Component 必须保证输入输出契约和序列化逻辑一致。
+
+### Q162.【Haystack Agent】`state_schema` 和 `exit_conditions` 为什么重要？
+
+**口语化回答：**
+
+> Haystack Agent 是一个循环组件，会让聊天模型选择 Tool、更新 State，直到满足 `exit_conditions`。`state_schema` 把运行时 State 的字段和类型明确下来，Tool 可以通过映射从 State 取输入、把输出写回 State；`exit_conditions` 则定义什么时候停止，不能只等模型自然结束。
+
+> 我会限制最大 Agent Step、Tool 次数、时间和费用，并给 Tool State 写入做业务校验。State Schema 只能保证结构，不保证内容真实；退出条件也要覆盖拒答、错误和预算耗尽。把 Agent 放进更大的 Pipeline 后，还要避免 Pipeline Loop 和 Agent Loop 两层相互放大。
+
+### Q163.【LlamaIndex 基础深挖】Document、Node、Index、Retriever、Query Engine 怎么串起来？
+
+**口语化回答：**
+
+> Document 是加载进来的原始逻辑文档和 Metadata；解析与切分后得到更细粒度的 Node；Index 组织 Node 及其检索结构；Retriever 根据 Query 找相关 Node；Query Engine 再把检索、后处理和 Response Synthesis 组合成一次问答。这样我能分别替换解析、索引、召回、重排和生成，而不是把 RAG 写成一段黑盒函数。
+
+> 真正上线时，我会给 Document 和 Node 稳定 ID，记录来源版本、权限、时间和 Transform 配置。删除或重建文档要传播到所有索引；Retriever 命中只是候选证据，Query Engine 输出仍要引用、数字校验和拒答，不能因为用了框架就默认有 Grounding。
+
+### Q164.【LlamaIndex 数据治理】Ingestion Pipeline 为什么要做确定性 ID、缓存和版本？
+
+**口语化回答：**
+
+> Ingestion Pipeline 会对文档执行解析、切分、Metadata 提取、Embedding 等 Transform。确定性 Document/Node ID 能识别同一对象，缓存可以避免内容和配置没变时重复做昂贵 Transform，版本则告诉我这批 Node 是由哪套 Parser、Chunk、Embedding 和权限规则生成的。
+
+> Cache Key 不能只看正文 Hash，还要包含会影响结果的 Transform 配置、模型版本、租户和权限标签。换 Embedding 时我会建新索引并双读评测，再切 Alias，不能在旧集合里静默混写不同向量空间。源文档删除、权限撤回和 Restatement 也要有传播与对账流程。
+
+### Q165.【DSPy 必问】Signature、Module、Metric、Optimizer 分别是什么？
+
+**口语化回答：**
+
+> Signature 声明任务输入输出和字段语义；Module 决定怎么执行这个任务，比如 Predict、ChainOfThought、ReAct；Metric 定义什么结果算好；Optimizer 根据训练样本和 Metric 搜索或生成更合适的指令、示例或参数，再 Compile 出优化后的 Program。它更像数据驱动地编译 LLM Program，而不是手工反复改 Prompt。
+
+> 我会先把任务契约和 Metric 做对，再谈 Optimizer。字段名和类型本身会影响模型理解；Metric 如果只奖励格式，优化器就可能得到格式漂亮但事实错误的结果。Compile 出来的 Prompt、示例、模型和 DSPy 版本都要落版本，线上仍走独立测试集和灰度。
+
+### Q166.【DSPy 评测】为什么 Optimizer 很容易产生数据泄漏和“指标作弊”？
+
+**口语化回答：**
+
+> Optimizer 会反复在 Train 或 Validation 样本上试候选指令，所以如果 Test 数据参与了选 Prompt、调 Metric 或人工观察，最终分数就不再是独立泛化能力。LLM Judge 还可能被候选答案里的指令影响；一个有漏洞的 Metric 也会让优化器学会投机满足评分规则。
+
+> 我会按时间或业务实体隔离 Train、Validation、Test，Test 只在冻结候选后运行；给 Judge 做输入分区、顺序随机化和人工校准；同时保留确定性校验、分组指标、成本和延迟。每次 Compile 记录数据集 Hash、Metric 版本和随机种子，不能只保存最后一个高分 Prompt。
+
+### Q167.【PydanticAI Durable】PydanticAI 支持 Durable Execution，是否代表 Agent 自己就是工作流引擎？
+
+**口语化回答：**
+
+> 不是。PydanticAI 提供适合被 Durable Runtime 调用的 Agent API，并有 Temporal、DBOS、Prefect、Restate 等官方集成；真正负责历史、重试、调度和进程恢复的是所选工作流系统。Pydantic 类型可以保证序列化结构更清楚，但不会自动让外部 Tool 变成幂等，也不会保证业务 Exactly-once。
+
+> 我会把模型调用、只读工具和写副作用拆成清晰 Activity，固定输入输出 Schema，给重试设置分类和上限。工作流重放时不能偷偷读取当前时间或随机数造成不确定结果；支付、通知和发布仍通过业务幂等键与执行账本收口。
+
+### Q168.【Microsoft Agent Framework】Agent、Agent Harness 和 Workflow 怎么选？
+
+**口语化回答：**
+
+> Agent 是最小的模型加指令和工具；Agent Harness 在外面加 Session、Context、Middleware、Telemetry 等常用能力；Workflow 用显式图来组合 Agent、函数、分支、并发和 HITL。开放对话先用 Agent 或 Harness，步骤、审批和失败路径明确时用 Workflow。官方也明确建议：普通函数能解决的任务就先写函数，不必强行上 Agent。
+
+> 微软把它定位为 AutoGen 和 Semantic Kernel 的直接继任者，但迁移不是改包名。我会逐项核对消息语义、Plugin/Tool Schema、状态、并发、Checkpoint、Telemetry 和模型连接器，再做契约与恢复测试。第三方模型和 Agent 的数据流、地域与授权仍由应用方负责。
+
+### Q169.【Google ADK 2.0】Graph Workflow、Dynamic Workflow 和预构建 Workflow Agent 怎么选？
+
+**口语化回答：**
+
+> Graph Workflow 用声明式 Node 和 Edge 表达确定性路由，适合结构稳定、要清楚展示数据流的流程；Dynamic Workflow 用普通代码写循环、递归和复杂条件，适合静态图很难表达的控制流；Sequential、Parallel、Loop 这些预构建 Workflow Agent 适合常见组合，代码最少。一个 Node 里仍然可以放 LLM Agent、Tool 或普通函数。
+
+> 截至本轮官方文档，ADK 2.0 Graph Workflow 标注支持 Python 和 Go，不能看到 ADK 有五种语言 SDK 就假设图能力完全齐平；官方还列出 Graph Live Streaming 等限制。我会按目标语言逐项验证 Session、Memory、Graph、Streaming、HITL 和部署能力，再决定选型。
+
+### Q170.【框架选型实战】你会怎么做一个公平的框架 PoC？
+
+**口语化回答：**
+
+> 我会先选同一个真实任务和同一组模型、工具、数据、预算、超时，不让某个框架偷偷多拿上下文。测试集至少覆盖正常、工具失败、长上下文、并发、审批、进程重启、权限攻击和版本升级。指标看任务成功率、引用与结构正确率、P50/P95 延迟、Token 和费用、恢复成功率、重复副作用以及开发排障成本。
+
+> PoC 不能只做 Happy Path，也不能拿厂商 Demo 当结论。我会要求团队各自实现同样的最小业务闭环，再做故障注入和 Trace 对照，最后把能力缺口、退出成本和学习成本写进 ADR。最优解经常是原生 SDK 加薄封装，不一定是功能最多的框架。
+
+### Q171.【框架升级】有暂停任务和长期 State 时，框架怎么升级？
+
+**口语化回答：**
+
+> 我会同时版本化 Graph/Workflow 定义、State Schema、Prompt、Tool Schema、模型和依赖。发布前用真实旧 Checkpoint 或 Session 做回放；新旧版本并存一段时间，在路由层按 `flow_version` 恢复到兼容 Worker；字段新增给默认值，重命名做显式迁移，删除 Node 前先确认没有在途任务停在那里。
+
+> 对无法兼容的运行，我会选择完成旧版本、人工迁移或明确取消，不能让新代码直接猜旧状态。升级测试要覆盖 Interrupt、并行分支、Tool Call、序列化和副作用，回滚也要保证旧二进制仍能读新写入的数据，否则“可以回滚镜像”只是表面安全。
+
+### Q172.【框架供应链】AI 框架、Integration、Plugin 和 MCP Server 怎么做依赖治理？
+
+**口语化回答：**
+
+> 我会固定依赖版本和 Lockfile，记录 SBOM、License、维护状态和来源；升级先看 Changelog、Migration Guide 和安全公告，再跑离线评测、契约测试、恢复测试和权限测试。Integration 往往比 Core 更新更快，不能因为名字带官方框架就默认同样稳定。
+
+> Plugin、Tool 和 MCP Server 都是可执行能力，不只是依赖包。我会固定 Server 身份与版本，校验 Tool Schema 变化，限制网络、文件和密钥，禁止未经评审的自动发现直接进入生产。发现维护模式、所有权变化或发布链异常时，先冻结升级并准备替换路径，不能让依赖供应链变成 Agent 的隐形最高权限。
+
 ---
 
 ## 八、推荐练习顺序
@@ -1289,7 +1537,7 @@ flowchart LR
 6. 用 CodeWiki 流程完成一次白板映射，但开场必须先说明“这是重构映射，不是当前生产实现”。
 7. 用同一个“研究后发布”场景分别画 LangGraph、OpenAI Agents SDK、ADK、CrewAI Flow 和 Dify Workflow，比较状态真相、恢复点、HITL 与副作用边界。
 8. 手写一个最小 MCP Host/Client/Server 交互说明，能口述初始化、能力协商、工具调用、超时重试和 OAuth 安全；再说明它与 A2A 委派的分层关系。
-9. 对 Q97-Q142 每个框架或协议至少准备一个“不该选它”的场景，避免面试只会背优点。
+9. 对 Q97-Q172 每个框架或协议至少准备一个“不该选它”的场景，避免面试只会背优点。
 
 ---
 
@@ -1332,19 +1580,20 @@ flowchart LR
 31. [LangGraph Workflows and Agents](https://docs.langchain.com/oss/python/langgraph/workflows-agents)
 32. [LangSmith Manage Prompts](https://docs.langchain.com/langsmith/manage-prompts)
 33. [LangSmith Compare Experiment Results](https://docs.langchain.com/langsmith/compare-experiment-results)
+34. [LangChain Context Engineering](https://docs.langchain.com/oss/python/langchain/context-engineering)
 
 #### 其他框架
 
 1. [LlamaIndex Official Overview](https://developers.llamaindex.ai/python/framework/)
-2. [LlamaIndex Workflows](https://developers.llamaindex.ai/python/framework/module_guides/workflow/)
+2. [LlamaIndex Workflows](https://developers.llamaindex.ai/python/llamaagents/workflows/)
 3. [Haystack Introduction](https://docs.haystack.deepset.ai/docs/intro)
 4. [CrewAI Introduction](https://docs.crewai.com/en/introduction)
 5. [AutoGen Official Repository](https://github.com/microsoft/autogen)
-6. [Microsoft Agent Framework Overview](https://learn.microsoft.com/en-us/agent-framework/overview/agent-framework-overview)
+6. [Microsoft Agent Framework Overview](https://learn.microsoft.com/en-us/agent-framework/overview/)
 7. [Microsoft Agent Framework Repository](https://github.com/microsoft/agent-framework)
 8. [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/)
-9. [Google Agent Development Kit](https://google.github.io/adk-docs/)
-10. [PydanticAI](https://ai.pydantic.dev/)
+9. [Google Agent Development Kit](https://adk.dev/)
+10. [PydanticAI](https://pydantic.dev/docs/ai/overview/)
 11. [DSPy](https://dspy.ai/)
 12. [Haystack Pipelines](https://docs.haystack.deepset.ai/docs/pipelines)
 13. [Haystack Agent](https://docs.haystack.deepset.ai/docs/agent)
@@ -1353,9 +1602,9 @@ flowchart LR
 16. [Semantic Kernel Official Repository](https://github.com/microsoft/semantic-kernel)
 17. [Semantic Kernel to Microsoft Agent Framework Migration](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-semantic-kernel/)
 18. [AutoGen to Microsoft Agent Framework Migration](https://learn.microsoft.com/en-us/agent-framework/migration-guide/from-autogen/)
-19. [ADK Graph Workflows](https://adk.dev/graphs/)
-20. [ADK Sessions and Memory](https://google.github.io/adk-docs/sessions/)
-21. [LangGraph Durable Execution](https://docs.langchain.com/oss/python/langgraph/durable-execution)
+19. [ADK 2.0 Graph Workflows](https://adk.dev/graphs/)
+20. [ADK Sessions and Memory](https://adk.dev/sessions/)
+21. [LangGraph Persistence](https://docs.langchain.com/oss/python/langgraph/persistence)
 22. [LangChain MCP](https://docs.langchain.com/oss/python/langchain/mcp)
 23. [OpenAI Agents SDK - Running Agents](https://openai.github.io/openai-agents-python/running_agents/)
 24. [OpenAI Agents SDK - Handoffs](https://openai.github.io/openai-agents-python/handoffs/)
@@ -1363,14 +1612,14 @@ flowchart LR
 26. [OpenAI Agents SDK - Sessions](https://openai.github.io/openai-agents-python/sessions/)
 27. [OpenAI Agents SDK - Tracing](https://openai.github.io/openai-agents-python/tracing/)
 28. [OpenAI Agents SDK - MCP](https://openai.github.io/openai-agents-python/mcp/)
-29. [Google ADK - Agents](https://google.github.io/adk-docs/agents/)
-30. [Google ADK - Workflow Agents](https://google.github.io/adk-docs/agents/workflow-agents/)
-31. [Google ADK - Callbacks](https://google.github.io/adk-docs/callbacks/)
-32. [Google ADK - Artifacts](https://google.github.io/adk-docs/artifacts/)
-33. [PydanticAI - Dependencies](https://ai.pydantic.dev/dependencies/)
-34. [PydanticAI - Output](https://ai.pydantic.dev/output/)
-35. [PydanticAI - Testing](https://ai.pydantic.dev/testing/)
-36. [PydanticAI - Durable Execution](https://ai.pydantic.dev/durable_execution/)
+29. [Google ADK - Agents](https://adk.dev/agents/)
+30. [Google ADK - Workflow Agents](https://adk.dev/agents/workflow-agents/)
+31. [Google ADK - Callbacks](https://adk.dev/callbacks/)
+32. [Google ADK - Artifacts](https://adk.dev/artifacts/)
+33. [PydanticAI - Dependencies](https://pydantic.dev/docs/ai/core-concepts/dependencies/)
+34. [PydanticAI - Output](https://pydantic.dev/docs/ai/core-concepts/output/)
+35. [PydanticAI - Testing](https://pydantic.dev/docs/ai/guides/testing/)
+36. [PydanticAI - Evals](https://pydantic.dev/docs/ai/evals/evals/)
 37. [Semantic Kernel Overview](https://learn.microsoft.com/en-us/semantic-kernel/overview/)
 38. [Semantic Kernel Plugins](https://learn.microsoft.com/en-us/semantic-kernel/concepts/plugins/)
 39. [Dify Documentation](https://docs.dify.ai/)
@@ -1388,6 +1637,12 @@ flowchart LR
 51. [MCP Security Best Practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices)
 52. [MCP Apps Overview](https://modelcontextprotocol.io/extensions/apps/overview)
 53. [A2A 1.0 Official LLM Index](https://a2a-protocol.org/llms.txt)
+54. [OpenAI Agents SDK - Sandbox Agents](https://openai.github.io/openai-agents-python/sandbox_agents/)
+55. [OpenAI Agents SDK - Durable Integrations](https://openai.github.io/openai-agents-python/running_agents/#durable-execution-integrations-and-human-in-the-loop)
+56. [PydanticAI - Durable Execution Overview](https://pydantic.dev/docs/ai/integrations/durable_execution/overview/)
+57. [DSPy - Signatures](https://dspy.ai/getting-started/expanding-signatures/)
+58. [DSPy - Modules](https://dspy.ai/getting-started/changing-modules/)
+59. [DSPy - GEPA Optimization](https://dspy.ai/getting-started/gepa-optimization/)
 
 ### 9.2 公开题库：只用于判断常见题型
 
