@@ -8,6 +8,7 @@
 - [Agent Memory 端到端系统深挖](./Agent-Memory-端到端系统深挖-英文.md)：长期记忆、Hybrid RRF、调度、上下文卸载和恢复链路。
 - [Agent Memory 专项面试深挖](./Agent-Memory-专项面试深挖-英文.md)：生产化、评估、故障案例和高频英文追问。
 - [英文 Live Coding 与系统设计表达](./英文Live-Coding与系统设计表达.md)：完整现场表达框架、20 道算法/并发/API 英文演练、Underwriting/金融投研 Agent/Agent Runtime 三道系统设计，以及被打断、卡住和事实边界话术。
+- [英文行为面与 HR 追问口语模板](./英文行为面与HR追问口语模板.md)：40 道求职动机、Ownership、协作、冲突、失败、谈薪和反问题；所有 `[FILL: ...]` 都是待本人用真实证据关闭的事实项。
 
 ## 事实基线
 

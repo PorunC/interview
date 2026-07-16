@@ -2059,6 +2059,102 @@ flowchart LR
 
 > 我的做法是先分别验证 Prompt-only 和 Weight-only，确认单条路线已经达到平台期，而且 Fine-tune 接口、训练数据和模型托管都具备，再评估组合。否则指标一变，我很难判断是 Prompt、Demo、权重还是 Metric 出了问题；为了多一点离线分数，把线上产物变成无法解释的组合优化，通常得不偿失。
 
+### Q239.【LangChain 调用预算】`ModelCallLimitMiddleware` 和 `ToolCallLimitMiddleware` 怎么区分？
+
+**口语化回答：**
+
+> 我会先按限制对象区分。`ModelCallLimitMiddleware` 限模型调用次数，`ToolCallLimitMiddleware` 限全部工具或某个指定工具的调用次数。两者都有单次 Invocation 的 `run_limit` 和同一 Thread 跨多轮累计的 `thread_limit`；两者的 `thread_limit` 都要依赖 Checkpointer 保存计数。这个限制主要防失控循环和费用放大，不等于业务限流、金额限额或权限校验。
+
+> 超限语义也不能混着背。模型限制通常在 `end` 和 `error` 之间选；工具限制还有默认的 `continue`，会拒绝超额 Tool Call 并把错误交给模型继续处理。工具的 `end` 只适合限制单个 Tool，存在其他并行待执行 Tool Call 时会报错。所以我会上线前测试单调用、并行调用、跨轮 Thread 和恢复后的计数，而不是只配一个数字。
+
+### Q240.【工具异常分层】`ToolRetryMiddleware`、`ToolErrorMiddleware` 和 LangGraph `RetryPolicy` 怎么配？
+
+**口语化回答：**
+
+> `ToolRetryMiddleware` 解决某个工具的瞬时失败，例如网络抖动和限流；重试耗尽后，`ToolErrorMiddleware` 决定哪些异常要转换成受控、脱敏的 `ToolMessage` 给模型修参数，哪些必须继续抛出。官方组合里，Retry 要配置 `on_failure="error"` 并放在 Tool Error 之前，否则异常可能提前变成消息，外层就收不到真正的失败。
+
+> LangGraph `RetryPolicy` 是 Node 级策略，重跑的是整个 Node 边界，里面可能不只有一次工具调用。模型 SDK、Tool Middleware 和 Node 三层都重试时，最坏调用数会相乘，副作用也可能重复。因此我会明确唯一的重试 Owner，写清可重试异常、总 Deadline、Backoff 和幂等键；发给模型的只是一段可行动的安全错误，原始堆栈留在 Trace。当前 `ToolErrorMiddleware` 要求 `langchain>=1.3.14`，旧环境不能照抄新示例。
+
+### Q241.【Middleware 深挖】Node-style Hook 和 Wrap-style Hook 更新 State 有什么区别？
+
+**口语化回答：**
+
+> `before_agent`、`before_model`、`after_model`、`after_agent` 这类 Node-style Hook 可以直接返回部分 State Dict，再由 State 的 Reducer 合并。`wrap_model_call` 是包住一次模型调用，想同时更新 State，不能只返回普通 Dict，而要把 `Command(update=...)` 放进 `ExtendedModelResponse`；`wrap_tool_call` 则可以直接返回 `Command`。
+
+> 如果 Hook 还要跳到 `end`、`tools` 或 `model`，我会在定义时用 `can_jump_to` 声明允许目标。多个 Wrap 都返回 Command 时，每个更新都会经过 Reducer；无 Reducer 的冲突字段按内层先、外层后应用，所以外层覆盖。外层做重试并多次调用 Handler 时，失败尝试产生的 Command 会被丢弃。我会专门测试 Reducer、冲突字段和重试后的 State，而不是只测模型最终文本。
+
+### Q242.【Message 新版题】`content`、`content_blocks` 和 `output_version="v1"` 怎么区分？
+
+**口语化回答：**
+
+> `content` 是消息原始载荷，可能是字符串，也可能保留模型厂商自己的字典结构；`content_blocks` 是 LangChain 的标准化、类型化视图，会把 Text、Tool Call、Citation、Multimodal 和 Reasoning 等内容按统一 Block 懒解析。应用只接一个 Provider、又需要它的特有字段时可以看原始 `content`；跨 Provider 的业务逻辑优先读标准 Block。
+
+> 如果消息要跨进程、落库或交给 LangChain 之外的服务，我可以在模型上设 `output_version="v1"`，让标准 Content Block 直接写进 `content`，而不是只在属性访问时临时解析。但标准化不代表所有 Block 都能对用户展示，尤其 Reasoning、签名、内部引用和 Tool 参数还要按产品政策脱敏；序列化前也要保留 Message ID 和 Tool Call 对齐关系。
+
+### Q243.【LangGraph v2】`invoke()` 为什么不再只返回 Dict？
+
+**口语化回答：**
+
+> LangGraph 1.1 的 `version="v2"` 是显式选择的新返回协议。在默认 `stream_mode="values"` 时，`invoke()` 和 `ainvoke()` 返回 `GraphOutput`，正常输出从 `.value` 取，中断信息从 `.interrupts` 取；如果显式选择 `updates` 等非默认模式，返回的是 `list[StreamPart]`。所以不能只看到 v2 就断言返回类型一定是 `GraphOutput`，旧式下标访问也只是迁移兼容路径。
+
+> v2 的 `values` 输出还会按声明的 Pydantic Model 或 Dataclass 还原类型。我会把 `version + stream_mode` 一起固定在服务端和客户端契约里，给正常完成、单个/并行 Interrupt、异常和旧数据各做测试；不能把 v1 `invoke`、v2 `GraphOutput`、v2 `StreamPart` 和 v3 Event Projection 四种结构混在同一个解析器里。
+
+### Q244.【Functional API 记忆】`previous` 和 `entrypoint.final` 有什么用？
+
+**口语化回答：**
+
+> Entrypoint 配了 Checkpointer 后，同一个 `thread_id` 下一次调用可以通过注入参数 `previous` 读到上次保存的 Entrypoint 状态；默认就是上次返回值。这适合保存一段轻量短期状态，但它仍是 Thread 内记忆，不是跨 Thread 的 Store，也不该拿来塞无限增长的原始 Tool Result。
+
+> `entrypoint.final(value=..., save=...)` 可以把“这次返回给调用方什么”和“下次 `previous` 读到什么”分开。例如对外返回本次结果，但只保存压缩后的累计状态。这里最容易犯的错是忘了 `thread_id`、把敏感输出原样存入 Checkpoint，或者改变保存类型后不做兼容迁移；我会分别给 Return Schema 和 Saved State Schema 定版本。
+
+### Q245.【LangGraph 迁移题】`config_schema` 为什么不该再用了？
+
+**口语化回答：**
+
+> State、Context 和 `RunnableConfig` 的完整区别见 Q151，这里只讲迁移陷阱。`config_schema` 已经弃用，当前应该用 `context_schema` 表达经服务端鉴权、校验后注入的 Run-scoped 上下文，例如 UserId、TenantId、模型选择和数据库依赖，再通过 `Runtime.context` 读取。客户端传来的身份不能因为进了 Context 就自动变可信。
+
+> 官方源码写明 `config_schema` 从 0.6.0 起弃用，计划在 2.0 移除；旧构造参数 `input`、`output` 也应迁到 `input_schema`、`output_schema`。我的迁移做法是先把字段按 State、Context、Execution Config 重新归类，再做类型和恢复测试，而不是机械改参数名后继续把身份和凭证塞进 Checkpoint。
+
+### Q246.【Deep Agents】同步 Subagent 和 Async Subagent 怎么选？
+
+**口语化回答：**
+
+> 同步 Subagent 适合主 Agent 必须拿到结果才能继续的短任务，调用期间 Supervisor 会等待；Async Subagent 启动后立即返回 Task ID，Supervisor 可以继续和用户交互，之后再查进度、更新任务、取消或查看任务列表，更适合长任务和多个并行任务。更新任务并不是给正在执行的旧 Run 热插一条消息，而是用 `interrupt` 策略中断旧 Run，在同一 Thread 上启动新 Run，Task ID 保持不变。当前能力仍是 Preview，我不会把接口稳定性说满。
+
+> 每个异步任务都有独立 Thread，任务 ID、Run ID、状态和时间等元数据放在 Supervisor 专门的 `async_tasks` 状态字段，不能只写进 Tool Message，因为消息压缩后可能丢掉。生产还要处理任务所有权、远程鉴权、状态过期、取消不及时和重复更新；界面看到取消成功，也不代表已经发生的外部副作用自动回滚。
+
+### Q247.【Agent 前端】消息队列和 Agent Server 的 Double-texting 策略是什么关系？
+
+**口语化回答：**
+
+> Q194 已经解释了 Agent Server 的四种 Double-texting 策略，这里重点讲前端映射。`multitaskStrategy="enqueue"` 会让新提交排在当前 Run 后面；`reject`、`interrupt`、`rollback` 分别是拒绝新请求、打断当前 Run 或回到旧状态再处理。前端队列只负责展示等待项、顺序和取消按钮，不能只靠浏览器数组模拟服务端并发真相。
+
+> `queue.cancel()` 和 `queue.clear()` 只影响还没开始的条目；当前 Run 要用 `stream.stop()` 或服务端取消协议。即使 Run 停了，已经成功的支付、写库或外发仍要靠操作账本、幂等和补偿收口。因此我会让 UI 的 Pending/Running/Cancelled 状态来自服务端真相，并测试浏览器刷新、双端登录和断线重连。
+
+### Q248.【Branching Chat】为什么编辑消息和重新生成应该创建分支？
+
+**口语化回答：**
+
+> 已经执行过的对话不是一段可以随便覆盖的字符串，它后面可能有 Tool Call、审批和外部动作。当前前端模式会从目标消息之前的 `parentCheckpointId` 出发，用 `forkFrom` 提交编辑后的消息；重新生成则从同一个父 Checkpoint 用空输入再跑。这样原路径还在，新结果形成另一条可追溯分支。
+
+> 我会在 UI 上明确当前分支和父分支，把 Message Metadata、CheckpointId、Graph/Prompt 版本一起保存。Fork 只复制逻辑状态，不会撤销原分支已经发生的副作用；深分支树还要有分页、保留和删除策略。没有服务端 Checkpoint Lineage 时，前端做一个“重新生成”按钮并不等于可恢复的 Branching Chat。
+
+### Q249.【Generative UI】怎么防止模型直接生成任意前端代码？
+
+**口语化回答：**
+
+> 我不会让模型返回可以直接执行的 JSX、HTML 或脚本，而是让它生成结构化 UI Spec。开发侧先定义一个小而明确的 Component Catalog，每个组件都有描述和 Zod Props Schema；Registry 再把允许的组件名映射到我们自己实现的 React/Vue 组件。模型只能组合白名单里的组件，不能临时发明一个可执行组件。
+
+> Streaming 时 Spec 可能只有半个 Element，所以要等 `type` 和 `props` 完整、通过 Schema 后再渲染。Catalog 只是第一层 Guardrail，URL、Markdown、文件、事件动作和服务端 Tool 仍要分别做权限、协议和内容校验，不能因为 Renderer 不执行任意代码就宣布没有 XSS、钓鱼或越权风险。
+
+### Q250.【Voice Agent】STT-Agent-TTS 和 Speech-to-Speech 怎么选？
+
+**口语化回答：**
+
+> STT-Agent-TTS 把语音识别、文本 Agent 和语音合成拆成三段，Provider 可以分别替换，Prompt、Tool 和每一段 Trace 都更容易观察，也能直接复用现有文本 Agent；代价是组件多、网络跳数多，而且转成文字会丢一部分语气信息。Speech-to-Speech 直接让多模态模型收发音频，简单交互里通常更自然、延迟更低，但内部过程更难解释，工具和安全策略也更难插入。
+
+> 我会先看业务要的是低延迟自然对话，还是强可控、可审计的任务执行。无论选哪种，都要处理用户插话（barge-in）、临时与最终转写、音频缓冲、静音超时、取消传播、TTS 回声和分阶段延迟；高风险动作仍以服务端确认和审批为准。没有真实生产语音项目证据时，我会明确这是架构选型题。
+
 ---
 
 ## 八、推荐练习顺序
@@ -2078,6 +2174,7 @@ flowchart LR
 13. 对 Q213-Q219 做一次当前版本深挖：连续回答默认重试范围、两类 Interrupt、并行审批、Replay/Fork、Custom Stream、PostgresSaver 运维和 Delta Checkpoint。
 14. 对 Q220-Q232 做一次跨框架选型：每题都说清状态真相、恢复边界、权限、取消和“不该选它”的场景。
 15. 对 Q233-Q238 做一次 DSPy 编译演练：从 Module 基线、Metric 和数据切分讲到 Optimizer、Compiled Artifact、回归、灰度和漂移排查。
+16. 对 Q239-Q250 做一次 2026 新版追问：连续回答调用预算、工具异常分层、Middleware State、Message Protocol、v2 Invoke、Functional Memory、异步任务和 Agent 前端交互。
 
 ---
 
@@ -2122,7 +2219,7 @@ flowchart LR
 33. [LangSmith Compare Experiment Results](https://docs.langchain.com/langsmith/compare-experiment-results)
 34. [LangChain Context Engineering](https://docs.langchain.com/oss/python/langchain/context-engineering)
 35. [LangChain Tools](https://docs.langchain.com/oss/python/langchain/tools)
-36. [LangGraph Runtime](https://docs.langchain.com/oss/python/langgraph/runtime)
+36. [LangChain Runtime（暴露 LangGraph Runtime）](https://docs.langchain.com/oss/python/langchain/runtime)
 37. [LangGraph Test](https://docs.langchain.com/oss/python/langgraph/test)
 38. [LangGraph Use Graph API](https://docs.langchain.com/oss/python/langgraph/use-graph-api)
 39. [LangGraph Functional API](https://docs.langchain.com/oss/python/langgraph/functional-api)
@@ -2147,6 +2244,16 @@ flowchart LR
 58. [LangChain and LangGraph Changelog](https://docs.langchain.com/oss/python/releases/changelog)
 59. [LangGraph Fault Tolerance](https://docs.langchain.com/oss/python/langgraph/fault-tolerance)
 60. [LangGraph Add Memory and Database Management](https://docs.langchain.com/oss/python/langgraph/add-memory)
+61. [LangChain Built-in Middleware](https://docs.langchain.com/oss/python/langchain/middleware/built-in)
+62. [LangChain Custom Middleware](https://docs.langchain.com/oss/python/langchain/middleware/custom)
+63. [LangChain Messages and Content Blocks](https://docs.langchain.com/oss/python/langchain/messages)
+64. [Deep Agents Async Subagents](https://docs.langchain.com/oss/python/deepagents/async-subagents)
+65. [LangChain Frontend Overview](https://docs.langchain.com/oss/python/langchain/frontend/overview)
+66. [LangChain Frontend Message Queues](https://docs.langchain.com/oss/python/langchain/frontend/message-queues)
+67. [LangChain Frontend Branching Chat](https://docs.langchain.com/oss/python/langchain/frontend/branching-chat)
+68. [LangChain Frontend Generative UI](https://docs.langchain.com/oss/python/langchain/frontend/generative-ui)
+69. [LangChain Voice Agents](https://docs.langchain.com/oss/python/langchain/voice-agent)
+70. [LangGraph 1.2.9 StateGraph Source](https://github.com/langchain-ai/langgraph/blob/1.2.9/libs/langgraph/langgraph/graph/state.py)
 
 #### 其他框架
 
@@ -2257,7 +2364,7 @@ flowchart LR
 
 > 公开题库里仍混有 `LLMChain`、旧 Memory、`create_react_agent` 和旧 Streaming API。部分页面还把题目直接标成“Google/Amazon 问过”，但没有给出可核验的面试记录，本文不采信这种公司归因，只借用重复出现的题目主题，答案按官方当前文档重新校正。
 >
-> 联网核查结论：Interview Coder 的 2026 题单确实集中在 Runnable/LCEL、Prompt、Structured Output、Memory、RAG、Tool、State/Reducer、Checkpoint、HITL、Streaming 和生产排障，但其中仍有 `MessageGraph`、`create_react_agent` 等旧入口；Index.dev 的题面覆盖 Hybrid RAG、Loader/Splitter、缓存、PII、多模型和系统设计，但答案里能看到旧包路径、`AgentExecutor` 以及模板化的 STAR 指标。GitHub 和 RPA Bots World 的大题单进一步集中追问编译、State 类型、动态并发、长期记忆、Streaming、部署、故障收口、监控和测试，因此去重后形成 Q173-Q219。Q220-Q238 则是继续对照 Strands、Mastra、Vercel AI SDK、Agno、smolagents、Genkit、NeMo 和 DSPy 官方文档补出的框架差集；这些公开资料仍不足以证明真实面试频率。这里不复用任何公开题库里的“上线规模、准确率、降本比例、事故恢复时间”等数字。
+> 联网核查结论：Interview Coder 的 2026 题单确实集中在 Runnable/LCEL、Prompt、Structured Output、Memory、RAG、Tool、State/Reducer、Checkpoint、HITL、Streaming 和生产排障，但其中仍有 `MessageGraph`、`create_react_agent` 等旧入口；Index.dev 的题面覆盖 Hybrid RAG、Loader/Splitter、缓存、PII、多模型和系统设计，但答案里能看到旧包路径、`AgentExecutor` 以及模板化的 STAR 指标。GitHub 和 RPA Bots World 的大题单进一步集中追问编译、State 类型、动态并发、长期记忆、Streaming、部署、故障收口、监控和测试，因此去重后形成 Q173-Q219。Q220-Q238 是继续对照 Strands、Mastra、Vercel AI SDK、Agno、smolagents、Genkit、NeMo 和 DSPy 官方文档补出的框架差集；Q239-Q250 则来自 2026-07-17 对 LangChain/LangGraph Changelog、Middleware、Message、Functional API、Deep Agents 和 Frontend 官方文档的二次差集审计。这些公开资料仍不足以证明真实面试频率。这里不复用任何公开题库里的“上线规模、准确率、降本比例、事故恢复时间”等数字。
 
 ### 9.3 你的真实面试来源
 

@@ -15,8 +15,9 @@
 | CodeWiki 专项 | [CodeWiki 全链路源码级深入分析](./02-CodeWiki/CodeWiki-全链路源码级深入分析.md) | 95 道题，覆盖多语言 AST、置信代码图、GraphRAG、Wiki 引用、增量、MCP 长任务和 Revision 一致性 |
 | Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 95 道题，覆盖长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯、多租户中台和失败语义 |
 | Agent 基础补课 | [AI Agent 通用面试题](./04-AI-Agent通用/AI-Agent-通用面试题.md) | 查缺补漏，不建议从头背完整本 |
-| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 260 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Java/TypeScript/Python 主流框架、生产故障与项目映射 |
-| 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练自我介绍、项目深挖、20 道 Live Coding 和 3 道系统设计 |
+| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 272 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Java/TypeScript/Python 主流框架、生产故障、Agent 前端与项目映射 |
+| 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练项目深挖、行为与 HR、20 道 Live Coding 和 3 道系统设计 |
+| 英文行为与 HR | [英文行为面与 HR 追问口语模板](./05-英文面试/英文行为面与HR追问口语模板.md) | 40 道英文口语模板，覆盖求职动机、Ownership、冲突、失败、谈薪与反问；所有 `[FILL: ...]` 必须用真实事实替换 |
 | Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./06-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
 | Java 后端 | [Java 后端高频面试题](./07-Java后端/Java后端高频面试题.md) | 120 道口语题，补齐 Java/JUC/JVM/Spring/MySQL/Redis/MQ/分布式和故障排查 |
 | Java 源码与中间件 | [Java 源码与中间件生产化面试题](./07-Java后端/Java源码与中间件生产化面试题.md) | 100 道源码和生产题，覆盖 JUC、Spring/MyBatis、MySQL、Redis、Kafka 及 10 道完整手写题 |
@@ -29,7 +30,9 @@
 | 网络/Kubernetes/分布式故障 | [网络、Kubernetes 与分布式故障现场题](./10-后端基础设施/网络-Kubernetes-分布式故障现场题.md) | 80 道现场题，覆盖网络命令、Kubernetes 故障、Raft/Lease、SRE 证据链和综合演练 |
 | 中文系统设计 | [大厂系统设计与故障追问题](./13-系统设计/大厂系统设计与故障追问题.md) | 60 道、10 个完整案例，覆盖容量、API、模型、一致性、分片、故障、安全、观测和演进 |
 | 金融 AI | [金融 AI 与自动授信高频面试题](./11-金融AI/金融AI与自动授信高频面试题.md) | 80 道口语题，覆盖美股 point-in-time 数据、Open Banking、授信模型治理、公平合规和金融 Agent 安全 |
+| 金融建模与风控实操 | [金融建模、风控、AML、SQL/Python 实操题](./11-金融AI/金融建模-风控-AML-SQL-Python实操题.md) | 48 道知识与实操题，覆盖三表/DCF、信贷指标、KYC/AML、6 道 PostgreSQL 和 6 道可运行 Python；不冒充本人金融生产经历 |
 | TypeScript 与 React | [TypeScript 与 React 高频面试题](./12-TypeScript与React/TypeScript与React高频面试题.md) | 100 道口语题，覆盖 JS/TS、React 19、状态与流式、大图布局、安全、测试，并严格连接 CodeWiki 当前边界 |
+| TypeScript/React 现场题 | [TypeScript/React 现场编码与故障面试题](./12-TypeScript与React/TypeScript-React现场编码与故障面试题.md) | 40 道完整现场题，覆盖 16 道 TS/JS 手写、14 道 React 故障复现和 10 道 CodeWiki 前端系统设计 |
 
 ## 项目与事实来源
 
@@ -57,15 +60,15 @@
 - `00-总览`：当前综合主入口，优先维护。
 - `01-AI周报系统`、`02-CodeWiki`、`03-Agent-Memory`：三个简历项目的专项事实和深挖问答。
 - `04-AI-Agent通用`：不绑定具体项目的基础知识和系统设计题。
-- `05-英文面试`：英文表达材料，不单独定义项目事实。
+- `05-英文面试`：英文项目、行为/HR、Live Coding 和系统设计表达材料，不单独定义项目事实。
 - `06-Pi`：公司内部引入的 Coding Agent 源码研究与改造评估，不冒充上游全部实现。
 - `07-Java后端`：针对真实 Java 面试暴露项和后端岗位的系统化口语题。
 - `08-算法与现场编码`：针对后续 Coding Round 的算法、并发和 AI/后端现场编码训练，不冒充已经被问过的原题。
 - `09-Python与FastAPI`：针对简历 Python/FastAPI 技术栈的语言、Web、数据库、测试与生产工程专项，答案连接 CodeWiki 但不反向虚构项目能力。
 - `10-LLM推理与RAG生产化`：补齐推理引擎、上下文生命周期、RAG 权限与删除、评测统计、Agent 安全和全局成本；论文结果不冒充项目指标。
 - `10-后端基础设施`：补齐 Java 21、网络协议、Kubernetes、CDC、可靠流式和 AI Runtime；项目未实现的能力统一按下一版设计回答。
-- `11-金融AI`：补齐海外金融岗位涉及的市场数据、自动授信、模型风险、公平合规和金融 Agent；没有本人生产经历的内容只按知识或迁移设计回答。
-- `12-TypeScript与React`：补齐 CodeWiki 前端栈和浏览器工程题；Zustand、SSE/WebSocket、Worker 与前端测试等当前未实现能力必须明确按下一版回答。
+- `11-金融AI`：补齐海外金融岗位涉及的市场数据、财务建模、自动授信、模型风险、KYC/AML 和金融 Agent，并提供 SQL/Python 实操；没有本人生产经历的内容只按知识或迁移设计回答。
+- `12-TypeScript与React`：补齐 CodeWiki 前端栈、可执行手写题、React 故障和浏览器系统设计；Zustand、SSE/WebSocket、Worker 与前端测试等当前未实现能力必须明确按下一版回答。
 - `13-系统设计`：用完整中文案例训练需求澄清、变量估算、API、数据模型、一致性、故障、安全和演进；案例不是本人现有项目经历。
 - `90-补充与历史题库`：保留早期题目、真实面试来源和不同组织方式，只作为补充检索，不作为项目事实的最终口径。
 
