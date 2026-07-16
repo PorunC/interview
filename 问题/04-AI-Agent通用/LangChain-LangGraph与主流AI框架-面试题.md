@@ -48,8 +48,8 @@ flowchart TB
 | “让模型按 Prompt 输出 JSON” | 优先用 Provider/Tool Structured Output，并继续做服务端业务校验 |
 | “Interrupt 从暂停那一行继续” | 错。恢复时当前 Node 从函数开头 replay，`interrupt()` 返回 Resume 值 |
 | “Checkpoint 保证 Exactly-once” | 错。外部副作用仍需幂等键、唯一约束、事务或 Outbox |
-| “Recursion limit 默认 25” | 旧资料。官方当前文档说明从 1.0.6 起默认 1000；生产仍应显式设业务上限 |
-| “Streaming 只有 values/updates” | 旧 `stream_mode` 仍可用；当前新项目优先事件流 `version="v3"` 的独立投影 |
+| “Recursion limit 永远默认某个固定数字” | 不能脱离版本和运行配置回答。本次核对中，部分官方说明仍写 1000，但 `langgraph 1.2.9` 标签源码常量是 `10007`，且可由环境变量覆盖；生产应显式设置业务上限 |
+| “Streaming 只有 values/updates” | 旧 `stream_mode` 仍可用；v2 提供统一事件包装，LangGraph 1.2 又新增 Beta 的 `stream_events(..., version="v3")` 独立投影，是否采用要看版本和稳定性要求 |
 | “MCP 远程传输就是旧 HTTP+SSE” | 旧 HTTP+SSE 已被 Streamable HTTP 替代；当前还要讲 Origin 校验、Session、事件恢复和 OAuth 2.1 |
 | “A2A 只有 JSON-RPC，Task 只能轮询” | A2A 1.0 的规范源是 Protobuf，公开了 JSON-RPC、REST、gRPC Binding，并支持 Stream、Subscribe 和 Push |
 | “OpenAI Agents SDK 完全没有恢复或 Durable 能力” | 旧口径。核心有 RunState/HITL，官方还有 Dapr、Temporal、Restate、DBOS 集成；但普通 Runner 不自动提供 Exactly-once |
@@ -486,7 +486,9 @@ graph.invoke(Command(resume=True), config)
 
 **口语化回答：**
 
-> Node 先执行；出现超时或异常后，由 Retry Policy 判断是否重试；重试耗尽以后，Error Handler 才接手，可以返回 `Command` 路由到补偿或降级节点。`interrupt()` 不属于普通失败，不会进入 Retry 或 Error Handler。当前官方的 Node Timeout 和 Error Handler 是较新的 1.2 能力，而且 Timeout 只支持 Async Node，面试时我会先确认实际版本。
+> Node 先执行；出现超时或异常后，由 Retry Policy 判断是否重试；重试耗尽以后，Error Handler 才接手，可以返回 `Command` 路由到补偿或降级节点。`interrupt()` 不属于普通失败，不会进入 Retry 或 Error Handler。当前官方的 Node Timeout 和 Error Handler 是较新的 LangGraph 1.2 Python-only 能力，而且 Timeout 只支持 Async Node；LangGraph.js 不能照搬这套 API，面试时我会先确认语言和版本。
+
+> 细追时我会补充：`run_timeout` 是一次 Node Attempt 的硬上限；`idle_timeout` 会被进度信号刷新，配置 `refresh_on="heartbeat"` 时只认显式 Heartbeat。超时的 Attempt 会丢弃尚未提交的缓冲 Writes，再交给 Retry Policy 决定下一次尝试。它不会撤销已经发到数据库或外部 API 的副作用，所以 Deadline、取消和幂等必须一起设计。
 
 ### Q40.【高频】Time Travel 是不是数据库回滚？
 
@@ -504,13 +506,15 @@ graph.invoke(Command(resume=True), config)
 
 **口语化回答：**
 
-> 旧 `stream_mode` API 仍然有 `values`、`updates`、`messages`、`custom`、`checkpoints`、`tasks` 和 `debug`。截至当前官方 1.2 文档，新项目更推荐 `stream_events(..., version="v3")`：分别迭代 `stream.messages`、`stream.values` 和 `stream.subgraphs`，暂停后检查 `stream.interrupted` 并读取 `stream.interrupts`，完成后读取 `stream.output`。面试时不能把旧 Stream v1、统一格式 v2 和 Event v3 的返回结构混着说。
+> 旧 `stream_mode` API 仍然有 `values`、`updates`、`messages`、`custom`、`checkpoints`、`tasks` 和 `debug`，LangGraph 1.1 的 v2 把输出统一包装成带 `type/ns/data` 的结构。LangGraph 1.2 新增了 Beta 的 `stream_events(..., version="v3")` 独立投影，可以分别迭代 `stream.messages`、`stream.values` 和 `stream.subgraphs`，暂停后看 `stream.interrupted`，完成后读 `stream.output`；如果从 `create_agent` 使用，还要求 LangChain 1.3。新项目可以评估 v3，但稳定性要求高或已有 v2 消费协议时不能盲迁，面试时也不能把三代返回结构混着说。
 
 ### Q43.【陷阱题】Recursion limit 是什么？默认够不够？
 
 **口语化回答：**
 
-> 它限制一次执行允许经过多少个 super-step，防止图无限循环。官方当前说明从 1.0.6 起默认是 1000，不是旧资料常写的 25。但默认值不是业务安全线，生产 Agent 我会按任务显式设更小的步骤、模型调用、工具调用、时间和费用上限，并在到达上限前尝试优雅收尾。
+> 它限制一次执行允许经过多少个 Super-step，防止图无限循环。这个数字必须带版本和配置说：本次联网核对时，部分官方说明仍写从 1.0.6 起默认 1000，但 PyPI 最新 `langgraph 1.2.9` 标签源码里的 `DEFAULT_RECURSION_LIMIT` 是 `10007`，而且还能被 `LANGGRAPH_DEFAULT_RECURSION_LIMIT` 覆盖。遇到这种文档和源码差异，我会以实际安装版本、环境和一次边界测试确认，面试时不把任何数字说成永远不变。
+
+> 更重要的是默认值不是业务安全线。生产 Agent 我会按任务显式设置更小的 Super-step、模型调用、工具调用、时间和费用上限，并在到达上限前尝试优雅收尾；这样框架升级也不会悄悄改变业务成本边界。
 
 ### Q44.【高频】Graph API 和 Functional API 怎么选？
 
@@ -547,6 +551,8 @@ graph.invoke(Command(resume=True), config)
 **口语化回答：**
 
 > 当前 1.2 提供 Drain 思路，让正在运行的 super-step 完成并在边界协作停止。要在进程重启后继续，图必须使用持久化 Checkpointer，再用同一 Config 调 `graph.invoke(None, config)`。它不是强杀线程或协程，所以容器的终止宽限期、Node 超时和外部任务取消仍然要单独设计。
+
+> 具体说，运行代码通过 `RunControl.request_drain()` 请求协作 Drain；当前 Node 和正在进行的 Retry 不会被中途强杀。到 Super-step 边界后，如果还有后续任务，运行会以 `GraphDrained` 收口，部署层保存同一 Thread/Checkpoint Config，下一实例再用 `invoke(None, config)` 继续。没有持久 Checkpointer 或终止宽限期短于当前 Node 耗时，Drain 也救不了中间进度。
 
 ### Q49A.【基础高频】`START`、`END` 和 `compile()` 分别做什么？
 
@@ -1387,7 +1393,7 @@ flowchart LR
 
 > `recursion_limit` 控制的是最大 Super-step 数，不是 Python 函数递归深度。只在外层捕获 `GraphRecursionError`，说明图已经被强制终止；把 `RemainingSteps` 放进 State 后，Node 可以在剩余步骤很少时主动停止继续研究，转到总结或降级节点，返回当前最好的部分结果。
 
-> 我会同时做两层：图内用 `RemainingSteps` 优雅收口，图外仍捕获异常作为最后兜底。官方当前默认值虽然已经比旧资料大，但生产必须按业务显式设置更小的步骤、工具、时间和费用上限；默认 1000 绝不能理解成可以放心循环 1000 次模型调用。
+> 我会同时做两层：图内用 `RemainingSteps` 优雅收口，图外仍捕获异常作为最后兜底。因为官方说明、安装版本和环境变量都可能影响默认值，生产必须按业务显式设置更小的步骤、工具、时间和费用上限；不管当前环境显示 1000 还是 10007，都不能理解成可以放心发起同等次数的模型调用。
 
 ### Q156.【LangGraph 运行时】Heartbeat 和协作停机能解决哪些问题，不能解决哪些问题？
 
@@ -1749,6 +1755,310 @@ flowchart LR
 
 > 我不会把它旧的 Chains 当当前主路线，官方已经标成 Legacy；ChatMemory 也是窗口和存储抽象，不是长期事实治理或工作流 Checkpoint。Spring AI 和 LangChain4j 我会用同一个任务比较模型支持、Tool Schema、Memory 隔离、RAG 可定制、Streaming、观测和升级成本。复杂 Durable Workflow 仍交给专门编排层，不能因为框架能循环 Tool 就说生产恢复已经解决。
 
+### Q201.【Memory 概念题】Semantic、Episodic、Procedural Memory 分别是什么？Semantic Memory 和 Semantic Search 是一回事吗？
+
+**口语化回答：**
+
+> 我会先把“记什么”和“怎么找”分开。Semantic Memory 记的是相对稳定的事实和知识，比如用户偏好；Episodic Memory 记的是过去发生过的任务和经验，常用作后续任务的示例；Procedural Memory 记的是做事规则，比如 System Prompt、流程策略和操作规范。Semantic Search 只是用 Embedding 相似度找内容的方法，它既可以检索事实，也可以检索经验，不等于 Semantic Memory 本身。
+
+> 映射到我们的 Agent Memory，我只会说当前主线保存了跨会话事实、摘要和可追溯证据，不会顺手把三种记忆都说成已经完整落地。如果下一版要加经验记忆和规则记忆，我会分别定义 Schema、来源、置信度、更新权限和评测集，不能把所有内容都塞进一个向量集合后统一叫“长期记忆”。
+
+### Q202.【Memory 设计题】长期记忆做成一个 Profile，还是一组 Memory Collection？
+
+**口语化回答：**
+
+> Profile 是一个持续更新的结构化对象，读取简单，适合姓名、偏好、风险等级这类边界清楚的字段；问题是对象越大，整份重写越容易覆盖旧字段，并发更新也容易丢数据。Collection 是很多条独立记忆，新增和局部删除更灵活，也更适合语义检索；代价是要处理去重、冲突、过期、排序和召回噪声。
+
+> 我一般会混合用：强 Schema、经常整体验证的稳定属性放 Profile；来源很多、变化快、需要保留证据的事实放 Collection。更新 Profile 用 Revision 或 Compare-and-Swap，更新 Collection 用稳定业务 Key、Source ID 和幂等 Upsert；读取时先做权限和时间有效性过滤，再做召回，不能让模型自己猜哪条新、哪条可信。
+
+### Q203.【Memory 一致性】记忆应该在 Hot Path 写，还是后台异步写？
+
+**口语化回答：**
+
+> Hot Path 是在回复用户前完成记忆抽取和写入，优点是本轮结束后马上可读，缺点是增加延迟，而且模型一边回答一边判断“该记什么”容易互相干扰。后台写把记忆形成从主请求拆出去，响应更快，也方便批量去重和质量审核；但它天然是最终一致，下一条请求可能暂时读不到刚产生的记忆。
+
+> 我会按业务分层。用户刚明确修改的关键事实走同步结构化写，保证 Read-your-writes；对话摘要、候选偏好和经验抽取走异步事件。后台任务要带 Conversation Revision、Source Message ID 和幂等键，写完推进 Watermark；读取端发现 Watermark 落后时，可以短暂合并最近原始消息或明确降级，不能假装后台已经处理完成。
+
+### Q204.【Checkpoint 安全】Checkpoint 怎么序列化和加密？为什么不能为了省事直接开 Pickle？
+
+**口语化回答：**
+
+> 当前 LangGraph Checkpointer 默认通过 `JsonPlusSerializer` 处理 State，底层用 Ormsgpack 和 JSON，并支持 LangChain、LangGraph 常见类型、时间和枚举。确实有无法编码的对象时可以开 Pickle Fallback，但我不会把它当常规方案，因为 Pickle 数据一旦来自不可信来源，反序列化就可能执行任意代码，而且它也会放大跨版本兼容问题。
+
+> 敏感 State 可以给 Checkpointer 配 `EncryptedSerializer`，官方提供从 AES Key 创建的方式。但加密只解决落盘内容保护，不代替租户鉴权、密钥轮换、备份加密、日志脱敏和删除策略。我更倾向让 State 保持小而稳定、使用明确 Schema，大对象和复杂运行时实例外置，只保存受权限保护的引用。
+
+### Q205.【数据治理】调用 `delete_thread` 就完成用户数据删除了吗？
+
+**口语化回答：**
+
+> 没有。`delete_thread` 或异步版本清理的是 Checkpointer 里这条 Thread 的 Checkpoint 和相关写入，不会自动删除 Store 里的跨会话记忆、向量索引、LangSmith Trace、业务日志、对象存储 Artifact、模型供应商日志和下游工具数据。Thread ID 也不一定等于 User ID，一个用户可能有很多 Thread。
+
+> 真正做遗忘权，我会先从用户或租户主键查出所有 Thread、Namespace、Artifact 和外部副作用记录，写入删除任务和 Tombstone，再分别删除正文、向量、缓存和可删除 Trace，最后做对账。备份按既定保留期自然过期，期间限制恢复后的重新传播。接口返回“已受理”还是“已完成”也要分清，不能删了一张表就宣称全链路完成。
+
+### Q206.【LangGraph 并行题】`defer=True` 解决什么问题？它是不是普通的定时延迟？
+
+**口语化回答：**
+
+> 它不是“过五秒再运行”。`defer=True` 是把这个 Node 推迟到当前运行里其他 Pending Task 都完成后再执行，特别适合并行分支长度不一样的 Fan-in。比如一条分支一步结束，另一条分支还有两步，普通汇总节点可能过早被触发；Deferred Node 可以等所有待处理分支收口后再做最终汇总。
+
+> 我仍然会给每条分支稳定 ID、Reducer、超时和失败状态，因为 Deferred 只解决执行时机，不会自动判断“少了一条结果怎么办”，也不会提供定时调度、跨天等待或 Exactly-once。需要某个时间点唤醒的业务，我会用任务调度或 Durable Workflow，不拿 `defer` 模拟计时器。
+
+### Q207.【Checkpoint 排障】拿到一个 `StateSnapshot`，你先看哪些字段？
+
+**口语化回答：**
+
+> 我先看 `values`，确认这一刻真实 State 是什么；再看 `next`，确认下一步计划执行哪些 Node，空元组一般表示图已经结束。`config` 里的 Thread、Checkpoint 和 Namespace 用来定位具体快照；`metadata` 里的 Source、Writes 和 Step 能解释这次状态是谁写的；`parent_config` 能往前追历史；`tasks` 里可以看到待执行任务、错误、Interrupt，以及请求子图快照时的子图状态。
+
+> 排障时我不会只盯最终 State。我会把父 Checkpoint、当前 Step 的 Node Writes、Pending Tasks 和实际 Trace 对齐：如果 State 对但路由错，查 `next` 和条件边；如果并行恢复异常，查 Tasks 和 Pending Writes；如果突然出现一份人工改过的状态，查 Metadata Source 是否是 Update。外部系统是否真的成功仍要去业务库核对，Snapshot 不是外部事实账本。
+
+### Q208.【Event Streaming】v3 的 Projection 和 Raw Event 有什么区别？
+
+**口语化回答：**
+
+> LangGraph 1.2 的 Beta v3 Event Streaming 把同一条底层事件流投影成 `messages`、`values`、`subgraphs`、`output` 等不同视图，调用方可以只消费自己关心的部分；通过 LangChain `create_agent` 使用还要 LangChain 1.3。Projection 适合业务代码，因为类型和语义更直接；Raw Event 保留更完整的协议事件和严格递增的序号，更适合需要重建真实到达顺序、调试或自定义投影的场景。因为它仍是 Beta，我会把协议版本锁定并做兼容测试，不把字段稳定性说成长期承诺。
+
+> 多个 Projection 可以并发读，但我不会假设分别读到的 Token、Reasoning 和 Tool Call Chunk 还能天然保持全局顺序。前端如果必须按真实到达顺序展示，就消费消息流里的 Raw Events，按 Run 内序号处理；重连时还要带事件游标或从服务端恢复，不能把客户端内存里的拼接结果当最终真相。
+
+### Q209.【Event Streaming】Content Block、Reasoning Delta、Tool Call Chunk 怎么安全展示？
+
+**口语化回答：**
+
+> 当前消息流把输出表示成有开始、增量和结束边界的 Content Block，文本、Reasoning 和 Tool Call 参数都可以作为不同类型的增量出现，`message-finish` 可能带 Usage，无法恢复的模型失败则通过 Message Error Event 表达。我会按 Block ID 和类型分别组装，等 Tool 参数结构完整并通过 Schema 校验后再展示或执行，不能把半截 JSON 当成正式参数。
+
+> Reasoning 也不等于应该原样给用户。前端只展示产品允许的解释或状态，内部推理、敏感 Tool 参数、凭证和完整 State 默认不外发；Tool Result 先做脱敏和大小限制。流结束、异常结束和客户端断线要有明确状态，最终结果以服务端持久化的 Run Output 为准，不能只靠浏览器收齐了多少 Chunk 来判断任务成功。
+
+### Q210.【Event Streaming 进阶】什么时候需要自定义 `StreamTransformer`？它能修改图的执行吗？
+
+**口语化回答：**
+
+> `StreamTransformer` 属于 LangGraph 1.2 的 Beta v3 Event Streaming。内置 Projection 已经够用时我不会自定义；只有业务确实需要新的流式视图，比如把多个底层事件聚合成“检索进度”、Tool 活动时间线或统计摘要，我才写 Transformer，通过 `required_stream_modes` 声明它依赖哪些底层模式，再把结果放到 Extension Projection。
+
+> Transformer 是观察和投影层，不应该回调图去改变 State、路由或触发副作用。多个消费者可以并发、独立读取不同 Projection，读取一个不会消费掉其他 Projection 需要的底层事件；但这不等于任意自定义 Transformer 都对主 Run 零成本。昂贵聚合仍可能增加处理延迟和缓存压力，所以它要轻量、有界，并处理正常完成、失败和取消。真正影响业务执行的判断仍放 Node、Middleware 或服务层。
+
+### Q211.【框架选型】LangGraph 和 Temporal、Restate、DBOS 这类 Durable Workflow 怎么选？
+
+**口语化回答：**
+
+> LangGraph 更贴近 LLM 应用，State、消息、Tool Loop、条件路由、Checkpoint、Interrupt 和多 Agent 表达都比较自然。Temporal 这类系统更偏跨服务、长周期业务工作流，强项是持久计时器、任务队列、Activity 重试、Worker 调度和多年运行积累。两边都能讲“恢复”，但恢复的状态模型、重放边界和运维能力不是一回事。
+
+> 如果核心难点是模型上下文和动态 Agent 路由，我会以 LangGraph 为主；如果任务跨天等待、跨很多业务服务，而且每个 Activity 都有明确事务边界，我会优先 Durable Workflow。复杂系统也可以组合：外层工作流管理订单、审批和计时，里面一个 Activity 运行 LangGraph Agent；但两层都要有稳定 Correlation ID 和幂等键，不能因为套了两个框架就宣称 Exactly-once。
+
+### Q212.【跨语言选型】LangGraph Python 和 LangGraph.js 能不能当成完全相同的一套 API？
+
+**口语化回答：**
+
+> 核心概念基本一致，都是 State、Node、Edge、Reducer、Checkpoint 和 Interrupt，但我不会把 Python 示例直接复制成 TypeScript。包名、类型系统、异步模型、集成组件、发布节奏和个别新能力可能不同，目标 SDK 支不支持要逐项查当前文档和版本，不能靠“概念一样”推断 API 一定一样。
+
+> 如果前后端或多团队跨语言协作，我会把边界放在协议上：State 和 Event 用版本化 JSON Schema，Tool 用稳定 Schema，Artifact 用 Ref，错误码、Resume Payload 和权限都写成契约。Checkpoint 是否能跨实现直接读取也不做默认假设，而是通过导出迁移和兼容测试验证。这样换语言或升级 SDK 时，业务协议不会跟着框架内部类型一起漂移。
+
+### Q213.【RetryPolicy 陷阱】LangGraph 默认会重试哪些异常？
+
+**口语化回答：**
+
+> 我不会说挂上 `RetryPolicy()` 就是什么异常都自动重试。当前默认 `max_attempts=3`，这个数字包含第一次执行；默认有指数退避和 Jitter。`default_retry_on` 会排除 `ValueError`、`TypeError`、`RuntimeError`、`OSError` 等异常及其子类；对 Requests、HTTPX 这类 HTTP 异常，默认主要重试 5xx，429 也不能想当然地认为会自动重试。Node Timeout 当前默认属于可重试范围。
+
+> 生产里我会根据 Provider 错误码和业务语义显式写 `retry_on`，同时设总 Deadline。网络失败能不能重试，还取决于这次调用有没有产生副作用；模型 SDK、Node 和网关三层如果都重试，还要计算最坏放大倍数。写操作必须带幂等键，参数错误和权限错误直接失败，不能靠重试掩盖。
+
+### Q214.【Interrupt 辨析】动态 `interrupt()` 和静态断点有什么区别？
+
+**口语化回答：**
+
+> `interrupt()` 是我写在 Node 或 Tool 里的动态业务暂停点，可以按运行条件触发并带 JSON Payload。恢复时必须使用同一个 Thread，传 `Command(resume=value)`；当前 Node 会从函数开头重放，所以审批前的副作用必须幂等。审批、编辑草稿和补充用户输入，这类正式 HITL 应该用它。
+
+> `interrupt_before`、`interrupt_after` 是 Compile 或单次 Invoke 配置的静态断点，主要用于调试和逐 Node 单步执行，继续时传 `None`。官方不建议把静态断点当正式审批协议。两者都依赖 Checkpointer 和 Thread ID，但触发条件、Payload、恢复输入和审计语义都不同。
+
+### Q215.【并行 HITL】多个并行分支同时 Interrupt，怎么恢复？
+
+**口语化回答：**
+
+> 同一个 Node 里连续多个 `interrupt()`，Resume 值按调用位置匹配，所以调用顺序不能在恢复前变化；多个并行分支同时暂停时，更不能靠返回列表顺序猜对应关系。运行结果里的每个 Interrupt 都有 ID，一次恢复多个时要传 `Command(resume={interrupt_id: value, ...})`，让答案按 ID 精确回到对应 Task。
+
+> 审批接口还要把 Tenant、Thread、Checkpoint、Interrupt ID、待执行动作 Hash 和审批人绑定起来，并对重复提交做幂等。只保存一个“已批准”布尔值，或者默认第一个按钮对应第一个分支，在并行完成顺序改变、页面重试或旧链接被重放后都可能批错动作。
+
+### Q216.【Time Travel 实操】怎样查看历史、Replay 和 Fork？
+
+**口语化回答：**
+
+> `get_state_history(config)` 会返回这个 Thread 的 `StateSnapshot`，默认最新在前。我会结合 `next`、`metadata.step`、`writes`、`tasks` 和 Interrupt 找目标 Checkpoint。拿旧 Checkpoint Config 调 `invoke(None, old_config)` 是 Replay：旧点以前不重跑，后面的模型、API 和 Interrupt 会再次执行，所以结果不一定一样。
+
+> `update_state(old_config, values, as_node=...)` 是 Fork，它会新建一份分支 Checkpoint，不会覆盖旧快照，也不是回滚原历史；更新仍经过 Reducer。`as_node` 表示把这次更新视为哪个 Node 写出的，会影响接下来从哪个后继继续。只有运行时无法可靠推断写入者，或者测试要刻意从指定 Node 分叉时，我才显式传它。
+
+### Q217.【自定义流】`get_stream_writer()` 是干什么的？
+
+**口语化回答：**
+
+> 它让 Node 或 Tool 主动发送业务进度，比如“已经分析 30/100 个文件”，不用等整个 Node 返回 State 才看到变化。低层 Streaming 要包含 `stream_mode="custom"`；v2 从统一的 `type/ns/data` 结构里读。v3 Event Streaming 里，自定义 Channel 通常再通过依赖 `custom` 模式的 Transformer 暴露成 Extension Projection。
+
+> 进度事件不是业务 State，也不是恢复依据，所以我不会往里面塞密钥、完整内部 State 或大对象。Python 3.11 以下的异步上下文里，`get_stream_writer()` 还有上下文传播限制，必要时要显式把 Writer 注入 Node 或 Tool。客户端断线后能不能补进度，也要靠持久事件或状态快照，不能指望内存 Stream 自动重放。
+
+### Q218.【PostgresSaver 运维】调用 `setup()` 就完成生产持久化了吗？
+
+**口语化回答：**
+
+> 没有。`setup()` 主要负责创建或迁移 Checkpoint 所需表结构，我会把它放在独立部署步骤或明确的启动迁移里，不会每个请求都跑。异步 Graph 配异步 Saver，还要继续做连接池、事务、索引、备份、加密、租户隔离和恢复演练。当前官方故障说明还提醒 `thread_id` 不要超过 Postgres 字段边界，稳定做法是 UUID 或受控短 ID。
+
+> Checkpoint 会持续增长，所以必须有容量监控和保留策略；但我不会说 PostgresSaver 天然有一个适用于所有后端的统一 TTL。`delete_thread` 也只清这条 Thread 的 Checkpoint 和 Writes，不会自动删除 Store、Trace、Artifact 或外部业务数据。能写进 Postgres，只代表持久化起点，不代表运维闭环。
+
+### Q219.【存储优化】`DeltaChannel` 为什么能缩小 Checkpoint，有什么代价？
+
+**口语化回答：**
+
+> 普通累计 Channel 可能在每个 Super-step 都把完整值重新写进 Checkpoint。LangGraph 1.2 的 Beta `DeltaChannel` 只保存增量或快照标记，读取时沿父 Checkpoint 的 Writes 重建当前值，所以消息历史这类 Append-heavy State 的单步存储可以接近增量大小，而不是随着完整历史一起变大。
+
+> 代价是读取和恢复更复杂，并且当前快照可能依赖祖先 Write Chain。做 Prune 时不能把仍被后代依赖的祖先 Writes 直接删掉，要先形成可独立恢复的 Snapshot，或者保留完整依赖链。它是特定负载下的 Beta 优化，不是所有 State 默认都该开，更不能拿它代替大 Artifact 外置和保留策略。
+
+### Q220.【Strands Agent Loop】停止原因和三类预算怎么设计？
+
+**口语化回答：**
+
+> Strands 的核心也是模型和工具之间的循环。模型返回 End Turn 就正常结束，返回 Tool Use 就执行工具再回填；另外还要处理 Cancelled、Turn/Token Limit、Max Tokens、Content Filter 和 Guardrail Intervention 等停止原因。面试里我不会只说“模型不调工具就结束”，因为截断、预算耗尽、安全拦截和外部取消的恢复语义完全不同。
+
+> 一次 Invocation 可以同时限制 `turns`、`total_tokens` 和 `output_tokens`。关键陷阱是 Limit 在下一轮顶部检查，不会在当前模型调用中间精确截断，所以单轮可能超预算；上一轮已经请求的工具也会先执行完再检查。因此高风险工具还要有独立超时、审批、取消和金额/资源上限，不能把 Agent Loop 的 Token Budget 当副作用保护。
+
+### Q221.【Strands 多 Agent】Graph、Swarm 和 Workflow 怎么选？
+
+**口语化回答：**
+
+> Graph 适合我先定义允许的节点和边，再让各 Agent 在这个拓扑里工作，控制边界更明确；Swarm 更强调 Agent 根据当前任务自主 Handoff，灵活但路径、成本和排障更不稳定；Workflow 是预定义的无环任务依赖，能并行独立任务，适合步骤确定、需要可预测执行的业务。
+
+> 我的选择顺序仍然是先确定性 Workflow，再受控 Graph，最后才是开放 Swarm。无论哪种模式，多 Agent 都不会自动解决共享状态冲突、递归委派、预算放大和权限传播。我会给每个委派稳定 Task ID、输入输出 Schema、深度和总预算，并测试路由准确率，而不是把“多个角色能聊天”当架构完成。
+
+### Q222.【Strands 恢复】Session、Snapshot 和 Interrupt 能不能等同于 LangGraph Checkpoint？
+
+**口语化回答：**
+
+> 不能直接画等号。Session Manager 会在 Agent 生命周期点保存会话相关状态；Snapshot 是应用主动挑选字段形成的 JSON 对象，真正存在哪里、何时保存由应用负责。Interrupt 可以暂停并恢复，批量工具场景里已完成结果会保留，恢复时继续剩余工具。这些能力都很实用，但状态粒度、重放边界和存储后端跟 LangGraph Checkpoint 不是同一套契约。
+
+> 我会用同一个故障用例比较：进程是在模型返回前、工具成功后还是 Snapshot 落盘后崩的，恢复会重复哪一步，外部副作用有没有账本。Session 或 Snapshot 存成功不等于 Exactly-once；审批重放、重复 Tool Result 和版本升级仍需要幂等键、操作状态机和兼容测试。
+
+### Q223.【Strands ContextOffloader】它和我们的 Agent Memory 上下文卸载有什么异同？
+
+**口语化回答：**
+
+> Strands 的 ContextOffloader 会在 Tool Result 进入模型上下文前按 Content Block 外置大内容，原位置留下 Preview 和 Reference，需要时再按 Pattern 或 Line Range 定向取回。它解决的是“大工具结果不要整块常驻上下文”，和我们 Agent Memory 的 Ref 思路很接近，所以我会拿它做框架对比，而不会说这个思路只有我们能做。
+
+> 差别要讲清楚：Preview 可能刚好漏掉深处答案，内存型条目会过期，而且单次 Tool Result 外置不等于整个长期任务已经做了结构化压缩。我们的现有实现还多了 Mermaid 阶段映射和 Ref 证据链，但也有同毫秒 Ref 覆盖、GC 降级和受控下钻不足等已知缺口。真正比较要看 Ref 命中率、下钻次数、证据完整性和恢复成功率，不看谁的名词更像。
+
+### Q224.【Mastra 选型】Agent、Workflow、Suspend、Resume 和 Restart 怎么理解？
+
+**口语化回答：**
+
+> 路径开放、下一步需要模型判断时我会用 Agent；步骤和数据流已经确定时用 Workflow，让输入输出和分支都显式。Workflow 可以 Suspend 等人工或外部输入，再 Resume；Restart 是重新开始一条执行，不应该和从暂停点继续混在一起。这个判断和 LangChain Agent 对 LangGraph Workflow 的原则一致，不能因为换成 TypeScript 框架就反过来。
+
+> 有快照和恢复仍然不等于外部副作用 Exactly-once。暂停前已经发出的邮件、支付或写库，恢复时要先查操作账本；Step 输入输出要有版本，旧 Run 恢复到新代码前要做兼容判断。生产选 Mastra 还要验证存储、并发、取消、重试和部署拓扑，不能只看 Studio 里流程能跑通。
+
+### Q225.【Mastra Memory 与 Eval】Resource、Thread、三类 Memory 和 Live Eval 怎么回答？
+
+**口语化回答：**
+
+> `resource` 是稳定的用户或业务实体，`thread` 隔离一条具体会话。Observational Memory 用后台 Agent 把旧消息压成 Observation；Working Memory 保存姓名、偏好、目标这类结构化事实；Semantic Recall 按语义找相关历史消息。不同 Agent 共享同一个 Resource 时，可能共享 Observation、Working Memory 和 Embedding，所以 Resource ID 既是记忆范围，也是权限边界，不能随便复用。
+
+> Live Eval 适合按采样在后台评估真实运行，观察质量趋势和 Bad Case，但异步结果来不及阻止当前危险操作，不能充当同步安全 Gate。支付、删库、外发敏感数据仍要确定性策略、工具鉴权和审批；Eval 用来监控、回归和改进，不是把 LLM Judge 放进后台就等于实时安全。
+
+### Q226.【Vercel AI SDK】Core、UI、Harnesses 和 `ToolLoopAgent` 怎么分工？
+
+**口语化回答：**
+
+> 我会把 AI SDK Core 看成模型、Tool、Generate/Stream 和结构化数据的服务端能力；UI 层负责 Chat 状态、Stream Protocol 和前端消息交互；Harnesses 再把模型循环、工具和停止条件组合成可运行 Agent。`ToolLoopAgent` 适合标准 Tool Loop，但我仍会用 `stopWhen`、总步数、Token、时间和费用预算限制它，不能把终止权只交给模型。
+
+> 它对 TypeScript 全栈和流式 UI 很顺手，但如果核心问题是复杂持久状态、图升级和跨天恢复，我会把它和 LangGraph、Mastra Workflow 或 Durable Workflow 做 PoC。前端体验好不等于后端恢复语义完整，框架选型要把 UI Transport 和业务真相分开比较。
+
+### Q227.【Vercel AI SDK 安全与流式】`runtimeContext`、`toolsContext`、Tool Approval 和断线恢复有什么坑？
+
+**口语化回答：**
+
+> `runtimeContext` 是本次生成或循环共享的可信运行上下文；`toolsContext` 按 Tool 隔离服务端依赖和凭证，模型不应该填写 API Key。当前 `toolApproval` 能控制 SDK 本地执行的 Tool，但 Provider-executed Tool 在厂商侧运行，不受这层本地审批控制，所以接入前必须逐个核对执行位置、数据外发和 Provider 权限。
+
+> 可恢复 Stream 解决的是浏览器断线后怎样继续接收或重建 UI，不等于客户端点 Stop 就一定取消服务端 Run，更不等于业务动作回滚。Transient Data Part 适合进度，不该当持久消息真相；最终 Message、Run State 和 Artifact 要服务端落盘。取消信号还要传到模型和 Tool，不能传的外部调用用 Deadline、幂等和补偿收口。
+
+### Q228.【Agno 选型】Agent、Team、Workflow、AgentOS 和四种 Team Mode 怎么分？
+
+**口语化回答：**
+
+> Agent 是单个能力单元，Team 是多 Agent 协作层，Workflow 是更确定的步骤编排，AgentOS 是把 Agent、Team 和 Workflow 暴露、运行和治理的平台层。Team 的 Coordinate 会拆任务、委派再汇总；Route 选一个专家直接返回；Broadcast 把同一任务发给多成员再综合；Tasks 用任务列表循环推进目标。
+
+> 我不会一看到多个专家就默认 Coordinate。只需分类转发时 Route 更便宜；需要多观点对照才 Broadcast；步骤固定时直接 Workflow。生产上还要限制嵌套 Team 深度、并发、成员工具权限和总预算，并给汇总结果保留来源，避免 Leader 把成员冲突静默改成一个看似确定的答案。
+
+### Q229.【Agno Memory】Automatic Memory 和 Agentic Memory 有什么一致性风险？
+
+**口语化回答：**
+
+> Automatic Memory 更偏框架按约定自动形成和更新记忆，接入简单；Agentic Memory 把“要不要记、改哪条”交给 Agent 决策，更灵活，但也扩大了模型写长期状态的权限。无论哪种方式，我都会用真实 User/Tenant Namespace、结构化 Schema、来源、版本和删除状态约束，不能让模型拿自然语言 Key 覆盖任意用户记忆。
+
+> 并发会话可能同时更新同一偏好，旧事实也可能覆盖新事实，所以写入要有 Revision、时间有效性和冲突策略；高风险字段需要人工或确定性来源。评测不能只看“记住多少”，还要看误记、跨用户泄漏、过期事实覆盖和删除是否完整。
+
+### Q230.【smolagents 安全】`CodeAgent` 和 `ToolCallingAgent` 怎么选，本地 AST Executor 是沙箱吗？
+
+**口语化回答：**
+
+> `CodeAgent` 让模型用代码组合多步动作，处理数据和循环时表达力强；`ToolCallingAgent` 通过结构化 Tool Call 执行，协议边界更清楚，也更容易逐次鉴权。任务只需少量高风险 API 时我偏向 Tool Calling；确实需要复杂计算和组合时才评估 Code Action，因为代码能力会显著扩大执行面。
+
+> smolagents 的 Local Python Executor 会解析 AST、限制 Import 和循环等，比直接 `exec` 安全，但官方也明确说本地 Python Sandbox 不可能绝对安全。只把代码片段放远程 Sandbox，和把整个 Agent、模型与 Tool 都隔离，威胁面不同。生产还要限制网络、文件、进程、CPU、内存、时间和 Secret，并把宿主机权限设为最小。
+
+### Q231.【Genkit Flow】叫 Flow 就等于 Durable Workflow 吗？
+
+**口语化回答：**
+
+> 不等于。Genkit Flow 更像一个带类型输入输出、可观测、可调用和可部署的服务端函数封装，适合把模型调用、检索和业务逻辑形成明确入口。它能帮助 Trace 和部署，但名字里的 Flow 不代表自动拥有跨进程 Replay、持久 Timer、Exactly-once Activity 或长时间人工等待。
+
+> 如果只是短请求里的确定性步骤，Flow 很合适；跨天任务、复杂补偿和强恢复我仍会外接任务队列或 Durable Workflow。面试时我会直接问：状态落在哪里、进程崩在哪个边界能续、外部写怎样幂等，而不是按框架名推断可靠性。
+
+### Q232.【NVIDIA NeMo Agent Toolkit】它和 LangGraph 是替代关系吗？
+
+**口语化回答：**
+
+> 我更愿意把 NeMo Agent Toolkit 看成跨框架集成、运行、评测和 Profiling 层。它可以接不同 Agent Framework 和组件，帮助统一 Workflow 测试、质量评估、Token/延迟分析和瓶颈定位；这和 LangGraph 负责 State、Node、Edge、Checkpoint 的核心编排定位不完全一样。
+
+> 所以已有多套框架、需要统一 Benchmark 和性能剖析时，它可能很有价值；只做一条简单 Agent Loop 时，再加一层反而会增加依赖和观测映射成本。底层框架的暂停、恢复、并发和副作用语义不会因为接入统一 Toolkit 自动改变，选型仍要逐层验证。
+
+### Q233.【DSPy 编译】Compile 和 Runtime 为什么必须分开？
+
+**口语化回答：**
+
+> DSPy 的 Compile 是离线优化过程：拿 Program、Trainset 和 Metric 搜索更合适的指令、Demo，部分 Optimizer 还会训练权重，最后返回一份 Compiled Program。线上 Runtime 应该加载已经保存和验证过的产物直接推理，而不是每个请求临时 Compile；否则延迟、费用、结果版本和数据泄漏都不可控。
+
+> 我会保存 DSPy、模型、Adapter、数据集、Metric 和 Optimizer 配置版本，Compiled Artifact 先跑独立 Held-out Eval，再灰度发布。线上请求只引用稳定 Artifact ID，回滚切回旧版本。Compile 成功只是找到一个候选，不代表它对新模型和新数据永远有效。
+
+### Q234.【DSPy Optimizer】BootstrapFewShot、MIPROv2 和 BootstrapFinetune 怎么选？
+
+**口语化回答：**
+
+> BootstrapFewShot 先从成功轨迹里构造 Demo，成本相对低，适合建立第一个可优化基线；MIPROv2 会联合搜索指令和 Demo，流程包含 Bootstrapping Demo、基于程序和数据提出 Grounded Instruction，再在有限 `num_trials` 预算里做组合优化；BootstrapFinetune 才会真正训练新的模型权重，基础设施和回滚成本最高。
+
+> 我的顺序通常是先确认 Metric 可信，再做 Few-shot；达到平台期后再评估 MIPROv2；只有数据量、模型能力和部署条件都支持，才做 Finetune。`auto=light/medium/heavy` 只是 MIPROv2 的搜索预算，不是系统自动帮我选择最合适的 Optimizer。
+
+### Q235.【DSPy 优化】GEPA 和 MIPROv2 的核心区别是什么？
+
+**口语化回答：**
+
+> MIPROv2 主要根据标量 Metric 在指令和 Demo 组合里搜索；GEPA 可以让 Metric 返回 `Prediction(score, feedback)`，利用自然语言反馈做反思式改写。后者能表达“为什么错、应该怎样改”，但前提是反馈稳定、具体而且没有泄漏答案；一个漂移的 LLM Judge 会把优化方向带偏。
+
+> 我会用同一份冻结 Train/Validation/Held-out 划分比较最终质量、方差、Compile 成本和 Runtime 成本。优化器在训练集上分高不算赢，必须看独立集、关键切片和安全回归；Metric 或 Judge 版本变化也要触发重新验证。
+
+### Q236.【DSPy 排障】Compiled Program 退化或遇到模型漂移，怎么定位？
+
+**口语化回答：**
+
+> 我会先调用 `dspy.Evaluate` 跑评估，再从返回的 `EvaluationResult.results` 找具体失败样本和切片；然后从 MLflow Trace 看是哪一个 Predictor、Tool 或模型调用开始偏离，必要时用 `inspect_history` 看实际 Prompt 和响应。`inspect_history` 更像共享 LM 的调试历史，不是生产级按请求隔离的 Trace，所以线上归因还是要靠稳定 Run ID 和观测系统。
+
+> 然后把模型、Adapter、Compiled Artifact、数据分布和 Metric 版本逐项对比。模型或语言分布变了，不代表一定立刻重编译；先在冻结 Held-out 和关键业务分组上回归，再决定保留、灰度新 Artifact 或重新 Compile。没有版本化产物和回滚，所谓自动优化很容易变成无法解释的线上漂移。
+
+### Q237.【DSPy 模块选择】`Predict` 和 `ChainOfThought` 怎么选？
+
+**口语化回答：**
+
+> 我的原则是先用最简单的 `Predict` 建基线，它按 Signature 直接生成结果，调用少、延迟低，也更容易定位输入输出问题。任务确实需要多步推理时再试 `ChainOfThought`，它会在原业务输出之外增加 Reasoning 字段；需要工具循环时用 `ReAct`，需要生成并执行代码时才评估 `ProgramOfThought` 或 `CodeAct`。
+
+> 名字更复杂不代表效果一定更好。抽取、分类、格式转换这类简单任务，多一段 Reasoning 可能只增加 Token、延迟和幻觉。我会在同一份 Held-out 数据上比较正确率、关键切片、延迟和费用，并控制是否对外展示 Reasoning；最终按证据选模块，不按“看起来更会思考”选。
+
+### Q238.【DSPy Meta-optimizer】`BetterTogether` 为什么不应该默认使用？
+
+**口语化回答：**
+
+> `BetterTogether` 可以按 `p -> w` 或 `p -> w -> p` 这类顺序组合 Prompt Optimizer 和 Weight Optimizer，既改指令和 Demo，又训练模型权重。它可能继续提高指标，但 Compile 成本、效果归因、模型部署、版本管理和回滚都明显更复杂。
+
+> 我的做法是先分别验证 Prompt-only 和 Weight-only，确认单条路线已经达到平台期，而且 Fine-tune 接口、训练数据和模型托管都具备，再评估组合。否则指标一变，我很难判断是 Prompt、Demo、权重还是 Metric 出了问题；为了多一点离线分数，把线上产物变成无法解释的组合优化，通常得不偿失。
+
 ---
 
 ## 八、推荐练习顺序
@@ -1764,6 +2074,10 @@ flowchart LR
 9. 对 Q97-Q172 每个框架或协议至少准备一个“不该选它”的场景，避免面试只会背优点。
 10. 对 Q173-Q188 做一次生产故障口述：任选一个请求，连续回答状态边界、并发、断线、重试、补偿、监控和恢复。
 11. 对 Q189-Q200 做一次框架迁移演练：把同一条 Java 或 Python Agent 流程分别映射到 Functional API、Agent Server、Spring AI 和 LangChain4j，并指出恢复与权限边界。
+12. 对 Q201-Q212 做一次运维演练：从一条带长期记忆和流式输出的 Thread 出发，连续解释记忆写入、Checkpoint 加密、删除、并行汇总、事件投影和跨框架恢复。
+13. 对 Q213-Q219 做一次当前版本深挖：连续回答默认重试范围、两类 Interrupt、并行审批、Replay/Fork、Custom Stream、PostgresSaver 运维和 Delta Checkpoint。
+14. 对 Q220-Q232 做一次跨框架选型：每题都说清状态真相、恢复边界、权限、取消和“不该选它”的场景。
+15. 对 Q233-Q238 做一次 DSPy 编译演练：从 Module 基线、Metric 和数据切分讲到 Optimizer、Compiled Artifact、回归、灰度和漂移排查。
 
 ---
 
@@ -1827,6 +2141,12 @@ flowchart LR
 52. [LangChain4j Tools](https://docs.langchain4j.dev/tutorials/tools/)
 53. [LangChain4j Chat Memory](https://docs.langchain4j.dev/tutorials/chat-memory/)
 54. [LangChain4j RAG](https://docs.langchain4j.dev/tutorials/rag/)
+55. [LangChain Memory Overview](https://docs.langchain.com/oss/python/concepts/memory)
+56. [LangGraph JavaScript Overview](https://docs.langchain.com/oss/javascript/langgraph/overview)
+57. [LangGraph 1.2.9 Default Runtime Config Source](https://github.com/langchain-ai/langgraph/blob/1.2.9/libs/langgraph/langgraph/_internal/_config.py)
+58. [LangChain and LangGraph Changelog](https://docs.langchain.com/oss/python/releases/changelog)
+59. [LangGraph Fault Tolerance](https://docs.langchain.com/oss/python/langgraph/fault-tolerance)
+60. [LangGraph Add Memory and Database Management](https://docs.langchain.com/oss/python/langgraph/add-memory)
 
 #### 其他框架
 
@@ -1889,6 +2209,40 @@ flowchart LR
 57. [DSPy - Signatures](https://dspy.ai/getting-started/expanding-signatures/)
 58. [DSPy - Modules](https://dspy.ai/getting-started/changing-modules/)
 59. [DSPy - GEPA Optimization](https://dspy.ai/getting-started/gepa-optimization/)
+60. [Temporal Workflow Execution](https://docs.temporal.io/workflow-execution)
+61. [Strands Agent Loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/)
+62. [Strands Multi-agent Patterns](https://strandsagents.com/docs/user-guide/concepts/multi-agent/multi-agent-patterns/)
+63. [Strands Session Management](https://strandsagents.com/docs/user-guide/concepts/agents/session-management/)
+64. [Strands Snapshots](https://strandsagents.com/docs/user-guide/concepts/agents/snapshots/)
+65. [Strands Context Offloader](https://strandsagents.com/docs/user-guide/concepts/plugins/context-offloader/)
+66. [Strands Interrupts](https://strandsagents.com/docs/user-guide/concepts/interrupts/)
+67. [Mastra Agents](https://mastra.ai/docs/agents/overview)
+68. [Mastra Workflows](https://mastra.ai/docs/workflows/overview)
+69. [Mastra Suspend and Resume](https://mastra.ai/docs/workflows/suspend-and-resume)
+70. [Mastra Memory](https://mastra.ai/docs/memory/overview)
+71. [Mastra Evals](https://mastra.ai/docs/evals/overview)
+72. [Vercel AI SDK Introduction](https://ai-sdk.dev/docs/introduction)
+73. [Vercel AI SDK - Building Agents](https://ai-sdk.dev/docs/agents/building-agents)
+74. [Vercel AI SDK - Tools and Tool Calling](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling)
+75. [Vercel AI SDK - Resume Streams](https://ai-sdk.dev/docs/ai-sdk-ui/chatbot-resume-streams)
+76. [Vercel AI SDK - Streaming Data](https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data)
+77. [Agno Introduction](https://docs.agno.com/introduction)
+78. [Agno Teams](https://docs.agno.com/teams/overview)
+79. [Agno Workflows](https://docs.agno.com/workflows/overview)
+80. [Agno Agent Memory](https://docs.agno.com/agents/memory)
+81. [smolagents Overview](https://huggingface.co/docs/smolagents/index)
+82. [smolagents Secure Code Execution](https://huggingface.co/docs/smolagents/tutorials/secure_code_execution)
+83. [Genkit Flows](https://genkit.dev/docs/flows/)
+84. [NVIDIA NeMo Agent Toolkit](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html)
+85. [NeMo Agent Toolkit Evaluation](https://docs.nvidia.com/nemo/agent-toolkit/latest/improve-workflows/evaluate.html)
+86. [NeMo Agent Toolkit Profiler](https://docs.nvidia.com/nemo/agent-toolkit/latest/improve-workflows/profiler.html)
+87. [DSPy Choosing an Optimizer](https://dspy.ai/diving-deeper/choosing-an-optimizer/)
+88. [DSPy Saving and Loading](https://dspy.ai/diving-deeper/saving-and-loading/)
+89. [DSPy MIPROv2](https://dspy.ai/api/optimizers/MIPROv2/)
+90. [DSPy GEPA Optimization](https://dspy.ai/getting-started/gepa-optimization/)
+91. [DSPy Observability](https://dspy.ai/tutorials/observability/)
+92. [DSPy Built-in Module Variants](https://dspy.ai/diving-deeper/built-in-module-variants/)
+93. [DSPy BetterTogether](https://dspy.ai/api/optimizers/BetterTogether/)
 
 ### 9.2 公开题库：只用于判断常见题型
 
@@ -1898,10 +2252,12 @@ flowchart LR
 4. [Interview Coder：Agentic AI Interview Questions 2026](https://www.interviewcoder.co/blog/agentic-ai-interview-questions)
 5. [LangGraph 社区题库](https://github.com/interviewroadmap/langgraph-interview-questions)
 6. [LangGraph 72 题社区题库](https://github.com/shahshrey/langgraph-interview-questions)
+7. [RPA Bots World：250 LangGraph Interview Questions 2026](https://rpabotsworld.com/langgraph-interview-questions/)
+8. [DSPrep：LangGraph Interview Questions](https://dsprep.com/Interview-Questions/LangGraph/)
 
-> 公开题库里仍混有 `LLMChain`、旧 Memory、`create_react_agent` 和旧 Streaming API。本文只借用其题目主题，答案已经按官方当前文档重新校正。
+> 公开题库里仍混有 `LLMChain`、旧 Memory、`create_react_agent` 和旧 Streaming API。部分页面还把题目直接标成“Google/Amazon 问过”，但没有给出可核验的面试记录，本文不采信这种公司归因，只借用重复出现的题目主题，答案按官方当前文档重新校正。
 >
-> 联网核查结论：Interview Coder 的 2026 题单确实集中在 Runnable/LCEL、Prompt、Structured Output、Memory、RAG、Tool、State/Reducer、Checkpoint、HITL、Streaming 和生产排障，但其中仍有 `MessageGraph`、`create_react_agent` 等旧入口；Index.dev 的题面覆盖 Hybrid RAG、Loader/Splitter、缓存、PII、多模型和系统设计，但答案里能看到旧包路径、`AgentExecutor` 以及模板化的 STAR 指标。GitHub 的 250 题社区清单还集中追问编译、State 类型、动态并发、故障收口、监控和测试，因此本轮把这些去重后补成 Q173-Q188；社区题库仍不足以证明真实面试频率。这里不复用任何公开题库里的“上线规模、准确率、降本比例、事故恢复时间”等数字。
+> 联网核查结论：Interview Coder 的 2026 题单确实集中在 Runnable/LCEL、Prompt、Structured Output、Memory、RAG、Tool、State/Reducer、Checkpoint、HITL、Streaming 和生产排障，但其中仍有 `MessageGraph`、`create_react_agent` 等旧入口；Index.dev 的题面覆盖 Hybrid RAG、Loader/Splitter、缓存、PII、多模型和系统设计，但答案里能看到旧包路径、`AgentExecutor` 以及模板化的 STAR 指标。GitHub 和 RPA Bots World 的大题单进一步集中追问编译、State 类型、动态并发、长期记忆、Streaming、部署、故障收口、监控和测试，因此去重后形成 Q173-Q219。Q220-Q238 则是继续对照 Strands、Mastra、Vercel AI SDK、Agno、smolagents、Genkit、NeMo 和 DSPy 官方文档补出的框架差集；这些公开资料仍不足以证明真实面试频率。这里不复用任何公开题库里的“上线规模、准确率、降本比例、事故恢复时间”等数字。
 
 ### 9.3 你的真实面试来源
 

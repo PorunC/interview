@@ -1738,6 +1738,132 @@ FastAPI 没有鉴权，而且启用 LLM 后源码证据可能发给外部 Provid
 
 > 当前严格来说可能读到混合版本。因为图、社区和社区边是分三次替换的，图内部还会分批提交；写锁只管同一进程的写操作，Ask 读的时候并没有固定到某个图版本。所以更新途中可能出现节点是新的、边暂时没了、社区还是旧的。下一版我会给整套索引加不可变 Revision，在旁路把图、社区、Chunk 和向量全部构好并校验，最后只原子切一次 `active_revision`。Ask 从开始到结束都读同一个 Revision，旧版延迟回收，这样才有明确的快照一致性。
 
+### Q87：CodeWiki 暴露了很多 MCP Tool，模型一次全看到不会更容易选错吗？
+
+**当前实现：**
+
+> 当前 MCP Server 已经暴露 Analyze、GraphRAG、Ask、Search、Callers、Callees、Impact、Trace、Node、Wiki 和 Agent Wiki Workflow 等多类工具。拆细的好处是 Agent 能选择确定性能力，不必把所有事情都塞进一个黑盒 Ask；但当前材料不能证明 Host 已经按任务动态加载 Tool，也不能说几十个 Schema 对模型没有 Token 和选择准确率成本。
+
+**迁移设计：**
+
+> 我会把工具按 `repo`、`graph`、`context`、`wiki`、`admin` 做命名空间，首轮只给搜索和少量高频只读工具；Agent 先通过 Tool Search 或能力目录发现候选，再加载目标 Schema。Host 还要按用户权限、仓库状态和任务阶段过滤可见工具，写工具默认不进入普通问答上下文。每次 Run 固定 Tool Manifest Snapshot 和 Schema Hash，避免执行到一半工具集合悄悄变化。
+
+**口语化回答：**
+
+> 会，工具不是越多越好。CodeWiki 拆成多工具，是为了让 Agent 能直接查调用方、影响范围或页面证据，而不是所有请求都走自然语言 Ask；但如果一次把所有 Schema 全塞给模型，既占 Token，也会让相似工具互相竞争。当前我能确认的是工具已经拆开，不能确认已经做了动态发现。生产化我会按域分组，首轮只给少量入口工具，再按任务和权限逐步加载，同时把本轮 Tool Manifest 固定下来。
+
+### Q88：Analyze 和整本 Wiki 生成很慢，MCP 调用怎么显示进度、取消和恢复？
+
+**当前实现：**
+
+> CodeWiki 有 Analysis Run、阶段进度和 FastAPI BackgroundTasks，也有逐页保存的 Wiki 结果；但 BackgroundTasks 不是可靠任务队列，Wiki 也没有完整的 Generation Run、页级 Lease 和断点游标。当前文档没有证明 MCP Server 已经实现 MCP Tasks、进度通知、取消后接管或跨进程恢复，所以不能把一次长 Tool Call 说成 Durable Job。
+
+**迁移设计：**
+
+> 我会让 MCP Tool 只负责提交幂等 Job，立即返回 Job 或 Task ID、目标 Repo Revision 和状态查询入口；Worker 用持久队列、Lease、Heartbeat 和阶段 Checkpoint 执行。客户端可以查进度、请求取消或取最终 Artifact；取消是协作式的，停止领新页面并保存已完成结果，不能粗暴删除运行记录。重试同一个 Idempotency Key 返回同一 Job，恢复前再次确认 Repo Revision，过期任务不能覆盖新代码。
+
+**口语化回答：**
+
+> 这种任务不应该让 MCP 连接一直阻塞。当前项目虽然能记分析进度，也会逐页保存 Wiki，但还不是完整的可恢复任务系统。我会把 MCP 调用改成提交 Job，先返回 ID；后台 Worker 带租约和心跳执行，Host 用状态接口或 MCP Tasks 看进度、取消和取结果。取消只停止后续阶段，已经成功的页面保留；重复提交靠幂等键命中同一任务。这里是生产化设计，不是当前已经具备的协议能力。
+
+### Q89：CodeWiki MCP 的三层鉴权具体是哪三层？
+
+**当前实现：**
+
+> 当前 CodeWiki 是单用户 Local-first，FastAPI 和 MCP 没有完整的 Bearer、Tenant、Repo ACL 和资源级授权。Repo ID、路径边界检查和 CORS 都不能代替可信身份与权限，所以我不会说“接到 MCP 以后协议自动保证安全”。
+
+**迁移设计：**
+
+> 第一层在 Host：根据当前主体和任务，只让模型看到获准的 Server 与 Tool，删除仓库、保存页面和触发分析这类写操作还要走审批。第二层在调用代理或 Interceptor：从可信 Runtime Context 注入短时凭证、Tenant、Repo Scope 和 Trace ID，模型不能生成这些字段。第三层在 CodeWiki MCP Server：重新认证并对每个 Repo、文件、操作和 Provider 外发策略做资源级鉴权，写入使用业务幂等键并记录审计。三层任何一层都不能把上一层的判断当永久可信。
+
+**口语化回答：**
+
+> 我会分 Host 可见性、调用前注入和 Server 最终授权三层讲。Host 先决定模型能看到什么；Interceptor 再把真实用户、仓库范围和 Trace 放进请求，但这些信息不暴露给模型；最后 CodeWiki Server 必须重新检查这个人能不能读该仓库、能不能写页面或删数据。当前项目还没有这套企业级 ACL，所以这是上线 MCP 服务前必须补的边界，不是已经完成的现状。
+
+### Q90：MCP Tool Schema 变了，旧 Agent 和暂停任务怎么兼容？
+
+**当前实现：**
+
+> 当前工具名和参数由代码定义，但没有可证明的 Tool Schema Registry、兼容性检查和暂停 Run 的 Manifest Snapshot。直接改必填参数、返回形状或权限语义，旧 Host 可能调用失败；更危险的是旧任务恢复时拿到新 Schema，模型可能用猜测参数继续执行。
+
+**迁移设计：**
+
+> 我会给 Server、Tool 和 Schema 建明确版本与 Hash。新增可选字段通常可以向后兼容；删除字段、改类型、扩大权限或改变副作用语义要发布新 Tool 版本，旧版本保留迁移窗口。CI 用录制的请求响应做 Contract Test，Host 发现重名或不兼容变化时阻止自动上线。每个 Run 固定 Tool Manifest，恢复时优先使用原版本；原版本已下线就进入显式迁移或人工处理，不能静默换新版。
+
+**口语化回答：**
+
+> MCP 统一的是调用协议，不会替我解决业务 Schema 升级。当前 CodeWiki 没有完整的 Schema Registry，我不会说旧任务天然兼容。生产上我会给每个 Tool 保存版本和 Schema Hash，本轮 Agent 固定一份 Manifest；兼容字段可以原版本演进，不兼容变化就发新版本并跑契约测试。暂停任务恢复时必须拿原 Schema，拿不到就明确迁移或失败，不能让模型按新版猜参数。
+
+### Q91：为什么大图和长源码要返回 Artifact Ref，而不是直接放进 MCP Tool Result？
+
+**当前实现：**
+
+> CodeWiki 已经有 Context、Trace、Node 等面向 Agent 的较小结果，但全图 API 仍可能返回大量节点和边，源码读取和 GraphRAG Context 也有各自大小。MCP Tool Result 最终会进入 Agent 上下文；如果直接返回整图或长文件，不仅 Token 爆炸，还会让重复调用、日志和 Trace 复制同一份敏感数据。当前材料不能证明所有 MCP 输出都已有统一分页和总 Token 上限。
+
+**迁移设计：**
+
+> 小结果直接返回结构化摘要；大结果保存为带租户、Repo Revision、内容哈希、大小和 TTL 的 Artifact，Tool Result 只返回摘要、分页游标或受控 Ref。Agent 再按节点、行范围和字段读取，服务端每次重新鉴权、限制大小和次数。Artifact 不能是模型可拼接的任意本地路径，也不能因为返回 Ref 就绕过删除和审计。
+
+**口语化回答：**
+
+> MCP 返回值也会占上下文，所以“工具能返回”不等于“应该一次全返回”。当前 CodeWiki 有一些小粒度查询，但还没有证据说明所有工具都统一做了分页和预算。我的做法是小结果直接给，大图和长源码落成受控 Artifact，只给摘要、Revision 和 Ref；Agent 需要时再按范围读取。这样既控制 Token，也让权限、版本和清理有明确抓手。
+
+### Q92：Wiki 取证期间代码发生变化，Source Ref 还可信吗？
+
+**当前实现：**
+
+> 当前 Page 生成会先做 GraphRAG、得到 Allowed Source Refs，再由服务端 ReadFile 读取对应范围。单进程 API 写入口的 Repo Lock 能减少同一仓库并发写，但当前 Graph、Chunk、Wiki 和源码读取没有统一不可变 Revision；CLI、MCP、多 Worker 或工作区直接变化也不一定受同一把锁约束。因此取证后源码变化时，文件路径和行号可能仍合法，内容却已经不是模型看到的版本。
+
+**迁移设计：**
+
+> 每次 Wiki Run 开始固定 Commit 或内容 Snapshot，Graph、Chunk、Source Ref 和 ReadFile 都必须带同一个 `revision_id` 与内容 Hash。读取前后校验文件 Hash；不一致就让当前页失败为 stale，而不是继续发布。生成结果保存 Evidence Manifest，记录实际读取的文件版本、行范围和 Hash，最终发布前再确认 Repo Active Revision 没有变化。
+
+**口语化回答：**
+
+> 当前引用能证明文件和行范围在校验时存在，但还不能证明整次生成都绑定同一个代码快照。代码在取证和保存之间变化，引用可能指向同一路径的另一版内容。下一版必须让 GraphRAG、ReadFile 和页面都固定到同一个 Revision，并校验内容 Hash；中途发现变化就把页面标 stale 重跑，不能拿旧证据发布新页面。
+
+### Q93：子页失败或来自旧批次时，父页还能直接生成吗？
+
+**当前实现：**
+
+> 当前顺序是先叶子后父页，父页会读取已生成的 Child Page Summary，这比父子完全独立生成更一致。但页面逐个 Upsert，没有统一 Wiki Run 和 Catalog Revision；某个子页可能是 Draft、缺失或来自上一批，当前材料不能证明父页一定只汇总同一批全部 generated 子页。
+
+**迁移设计：**
+
+> 我会把 Catalog 展开成显式页面 DAG，每个父页依赖的子页、输入 Revision 和最低状态写进 Run。关键子页失败时父页保持 blocked；允许部分发布的页面必须明确列出缺失范围，不能悄悄使用旧摘要。父页的 Input Hash 包含所有子页版本，任一子页更新都会让父页自动变脏。整批完成后再做目录、链接、重复内容和父子结论一致性检查。
+
+**口语化回答：**
+
+> 先子页后父页只是正确方向，还不等于父子一定同批一致。当前没有完整的 Wiki Run，父页可能拿到旧子页或 Draft。生产化我会把页面当 DAG：父页明确依赖哪些子页和版本，关键子页没成功就先阻断；子页一变，父页的输入 Hash 也变并重新生成。这样父页总结的是同一 Revision 的已验证结果，不是把新旧页面拼起来。
+
+### Q94：Wiki 是逐页保存的，怎样避免用户看到新旧混合版本？
+
+**当前实现：**
+
+> 当前每页按 Slug Upsert，普通校验失败会存 Draft；系统异常时，此前成功页面仍留在库里，没有整本 Wiki 的统一事务回滚和可见版本切换。因此生成过程中，读请求可能看到部分新页、部分旧页，甚至新 Catalog 对应不上旧页面。Q75 已说明这是当前恢复边界。
+
+**迁移设计：**
+
+> 我会让页面写入不可见的 `wiki_revision`，整批完成后生成 Manifest，检查 Catalog、页面状态、父子依赖、Source Revision 和链接完整性。全部满足发布门槛后，只用一个短事务切换 `active_wiki_revision`；读请求从开始到结束固定同一版本。旧版保留一段时间支持在途读取和快速回滚，再由 GC 清理。
+
+**口语化回答：**
+
+> 当前逐页保存有利于保住结果，但代价是没有原子发布，用户可能看到新旧混合。下一版我不会尝试给几十页套一个长数据库事务，而是旁路生成一个不可见版本，整本校验通过后只切一次 Active Manifest。读请求固定一个 Wiki Revision，旧版延迟回收。这样失败可以继续补页，用户看到的仍是一套完整版本。
+
+### Q95：Dirty Plan 怎么证明没有漏掉间接受影响的 Wiki 页面？
+
+**当前实现：**
+
+> 当前这里其实有两条不能混为一谈的路径。默认增量更新会根据 Source Ref 或 Graph Ref 的直接命中把对应页面标成 Stale，再按 Slug 逐页重新生成；这条路径目前不会因为一个子页变脏就自动向父页传播。另一套 `update_pages` 规划才会针对 Missing、Draft、Title 或 Parent Metadata 变化向上标记父页。因此当前能证明“直接命中页会更新”，不能证明所有代码或图变化都会沿父子关系自动覆盖间接受影响页面。
+
+**迁移设计：**
+
+> 我会维护从文件、符号、边、社区、Catalog Item 到 Page 的版本化 Lineage；变更先计算直接影响，再按有上限的反向依赖传播，记录每个 Dirty 原因。无法证明影响范围时宁可扩大到模块或社区重建。发布前做 Source Hash 对账和抽样全文回放，线上再统计 stale 反馈与漏标页面，把 Bad Case 加进增量回归集。
+
+**口语化回答：**
+
+> Dirty Plan 不是看起来列出几页就算正确。当前默认链路能沿 Source Ref 和 Graph Ref 找到直接命中页，但不会自动向父页传播；父页传播只存在另一条针对 Missing、Draft 和元数据变化的规划里，这两条能力不能合并着说。下一版要把代码事实到页面的 Lineage 持久化，统一做有界反向传播，并记录每一页为什么变脏；不确定时扩大重建范围，再用固定变更集统计 Dirty Precision、Recall、无变化复用率和发布后 stale 率。
+
 ## 39. 面试时不要说错的事实
 
 - 不要说“所有能识别扩展名的语言都有 AST Parser”，当前 Parser 支持范围更小。

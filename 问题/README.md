@@ -11,18 +11,23 @@
 | 事实核对 | [面试前个人事实核对清单](./00-总览/面试前个人事实核对清单.md) | 补齐团队、投产、用户、QPS、模型、部署和指标证据，禁止临场编数字 |
 | 行为面与 STAR | [行为面与 STAR 证据化面试题](./00-总览/行为面与STAR证据化面试题.md) | 60 道口语题；先填写 RACI 与 S1-S12 故事卡，再练失败、冲突、延期、故障和跨团队追问 |
 | 三小时深挖模拟 | [三小时深度挖掘题库](./00-总览/三小时面试-十年面试官视角深度挖掘题库.md) | 按面试官追问顺序做完整演练 |
-| AI 周报专项 | [AI 周报系统专项面试问答](./01-AI周报系统/AI周报系统-专项面试问答.md) | 重点准备批处理、数据完整性、幂等、LLM 边界和事务一致性 |
-| CodeWiki 专项 | [CodeWiki 全链路源码级深入分析](./02-CodeWiki/CodeWiki-全链路源码级深入分析.md) | 重点准备多语言 AST、置信代码图、GraphRAG、Wiki 引用校验、增量更新和 Lite/MCP |
-| Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 重点准备长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯和生产边界 |
+| AI 周报专项 | [AI 周报系统专项面试问答](./01-AI周报系统/AI周报系统-专项面试问答.md) | 46 道题，覆盖批处理、数据完整性、根因诊断迁移、DAG、LLM Map-Reduce、重放和上游对账 |
+| CodeWiki 专项 | [CodeWiki 全链路源码级深入分析](./02-CodeWiki/CodeWiki-全链路源码级深入分析.md) | 95 道题，覆盖多语言 AST、置信代码图、GraphRAG、Wiki 引用、增量、MCP 长任务和 Revision 一致性 |
+| Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 95 道题，覆盖长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯、多租户中台和失败语义 |
 | Agent 基础补课 | [AI Agent 通用面试题](./04-AI-Agent通用/AI-Agent-通用面试题.md) | 查缺补漏，不建议从头背完整本 |
-| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 222 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Spring AI、LangChain4j、生产故障与项目映射 |
+| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 260 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Java/TypeScript/Python 主流框架、生产故障与项目映射 |
 | 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练自我介绍、项目深挖、20 道 Live Coding 和 3 道系统设计 |
 | Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./06-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
 | Java 后端 | [Java 后端高频面试题](./07-Java后端/Java后端高频面试题.md) | 120 道口语题，补齐 Java/JUC/JVM/Spring/MySQL/Redis/MQ/分布式和故障排查 |
+| Java 源码与中间件 | [Java 源码与中间件生产化面试题](./07-Java后端/Java源码与中间件生产化面试题.md) | 100 道源码和生产题，覆盖 JUC、Spring/MyBatis、MySQL、Redis、Kafka 及 10 道完整手写题 |
 | 算法与现场编码 | [算法与现场编码高频题](./08-算法与现场编码/算法与现场编码高频题.md) | 100 道口语题，按思路、不变量、复杂度和易错点练习算法、并发与后端现场设计 |
+| 完整现场编码 | [Java/Python 现场编码完整题解](./08-算法与现场编码/Java-Python现场编码完整题解.md) | 30 道完整 Java/Python/SQL 题，包含澄清、不变量、可执行代码、测试、复杂度和 Follow-up |
 | Python 与 FastAPI | [Python 与 FastAPI 高频面试题](./09-Python与FastAPI/Python与FastAPI高频面试题.md) | 120 道口语题，覆盖 Python 对象与异步、ASGI/FastAPI、Pydantic、SQLAlchemy、测试、观测、安全和部署 |
-| LLM 推理与 RAG 生产化 | [LLM 推理与 RAG 生产化高频面试题](./10-LLM推理与RAG生产化/LLM推理与RAG生产化高频面试题.md) | 60 道深挖口语题，覆盖推理调度、KV Cache、Context/RAG 生命周期、Eval 统计、安全与全局成本治理 |
+| Python 源码与异步故障 | [Python/FastAPI 源码与异步故障面试题](./09-Python与FastAPI/Python-FastAPI源码与异步故障面试题.md) | 60 道深挖题，覆盖 CPython、asyncio、ASGI、Pydantic、SQLAlchemy、故障现场和 6 道手写题 |
+| LLM 推理与 RAG 生产化 | [LLM 推理与 RAG 生产化高频面试题](./10-LLM推理与RAG生产化/LLM推理与RAG生产化高频面试题.md) | 64 道深挖口语题，覆盖推理调度、KV Cache、Context/RAG、Eval、安全、成本与模型路由四连问 |
 | 后端基础设施 | [Java 21、网络、Kubernetes、分布式与 AI 运行时](./10-后端基础设施/Java21-网络-Kubernetes-分布式与AI运行时面试题.md) | 45 道生产化口语题，覆盖 Virtual Threads、WebFlux、TCP/TLS/HTTP、Kubernetes、CDC、可靠流式与 Agent Runtime |
+| 网络/Kubernetes/分布式故障 | [网络、Kubernetes 与分布式故障现场题](./10-后端基础设施/网络-Kubernetes-分布式故障现场题.md) | 80 道现场题，覆盖网络命令、Kubernetes 故障、Raft/Lease、SRE 证据链和综合演练 |
+| 中文系统设计 | [大厂系统设计与故障追问题](./13-系统设计/大厂系统设计与故障追问题.md) | 60 道、10 个完整案例，覆盖容量、API、模型、一致性、分片、故障、安全、观测和演进 |
 | 金融 AI | [金融 AI 与自动授信高频面试题](./11-金融AI/金融AI与自动授信高频面试题.md) | 80 道口语题，覆盖美股 point-in-time 数据、Open Banking、授信模型治理、公平合规和金融 Agent 安全 |
 | TypeScript 与 React | [TypeScript 与 React 高频面试题](./12-TypeScript与React/TypeScript与React高频面试题.md) | 100 道口语题，覆盖 JS/TS、React 19、状态与流式、大图布局、安全、测试，并严格连接 CodeWiki 当前边界 |
 
@@ -61,6 +66,7 @@
 - `10-后端基础设施`：补齐 Java 21、网络协议、Kubernetes、CDC、可靠流式和 AI Runtime；项目未实现的能力统一按下一版设计回答。
 - `11-金融AI`：补齐海外金融岗位涉及的市场数据、自动授信、模型风险、公平合规和金融 Agent；没有本人生产经历的内容只按知识或迁移设计回答。
 - `12-TypeScript与React`：补齐 CodeWiki 前端栈和浏览器工程题；Zustand、SSE/WebSocket、Worker 与前端测试等当前未实现能力必须明确按下一版回答。
+- `13-系统设计`：用完整中文案例训练需求澄清、变量估算、API、数据模型、一致性、故障、安全和演进；案例不是本人现有项目经历。
 - `90-补充与历史题库`：保留早期题目、真实面试来源和不同组织方式，只作为补充检索，不作为项目事实的最终口径。
 
 ## 统一回答规则
@@ -68,5 +74,5 @@
 1. 先说结论，再讲链路、取舍、结果和边界。
 2. “当前实现”和“下一版改进”必须分开说，不能把设计建议包装成线上事实。
 3. 指标必须能说明样本、基线、计算公式和统计窗口；拿不出证据时就说清楚口径限制。
-4. 讲“独立负责”时，明确自己负责架构主线和核心实现，同时说明业务接入、评审和发布中的团队协作。
+4. 讲“独立负责”时，按项目和阶段说明需求、设计、实现、联调、测试、发布和验收中的真实 RACI；只有证据支持时才认领架构主线或核心实现。
 5. 所有项目均按公司内部项目回答，不讨论公开仓库归属，也不使用源码日期推断项目经历。
