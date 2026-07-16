@@ -7,6 +7,7 @@
 - [三项目与 Agent 系统设计](./三项目与Agent系统设计-英文.md)：三个项目、自我介绍和 Agent 系统设计的综合英文话术。
 - [Agent Memory 端到端系统深挖](./Agent-Memory-端到端系统深挖-英文.md)：长期记忆、Hybrid RRF、调度、上下文卸载和恢复链路。
 - [Agent Memory 专项面试深挖](./Agent-Memory-专项面试深挖-英文.md)：生产化、评估、故障案例和高频英文追问。
+- [英文 Live Coding 与系统设计表达](./英文Live-Coding与系统设计表达.md)：完整现场表达框架、20 道算法/并发/API 英文演练、Underwriting/金融投研 Agent/Agent Runtime 三道系统设计，以及被打断、卡住和事实边界话术。
 
 ## 事实基线
 
@@ -15,4 +16,3 @@
 - Agent Memory：[中文专项主文档](../03-Agent-Memory/Agent-Memory-端到端系统深挖.md)
 
 英文旧稿如果和中文主文档冲突，以中文主文档为准，尤其注意不要复述未经压测证明的延迟、并发、容量和覆盖率数字。
-

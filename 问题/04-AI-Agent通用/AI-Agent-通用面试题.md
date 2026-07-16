@@ -3,6 +3,8 @@
 > 定位：不绑定具体项目的 Agent 基础知识库，按专业面试回答口径压缩为简短答案。项目事实不要从本文反推，应以 [问题资料索引](../README.md) 中三个专项主文档为准。
 >
 > LangChain/LangGraph 当前版本、弃用 API 和框架选型请优先使用 [LangChain、LangGraph 与主流 AI 框架面试题](./LangChain-LangGraph与主流AI框架-面试题.md)。本文为通用知识库，部分 Classic API 仅适合识别历史题目。
+>
+> 特别说明：本文 Q093-Q104 保留了早期题库的组织方式，已经校正关键错误，但不作为当前 API 的唯一答案。涉及 MCP 2025-11-25、LangChain v1、LangGraph 1.x、Agent Server、OpenAI Agents SDK、Spring AI 或 LangChain4j 时，以框架专项为准。
 
 ## 目录
 - 课前必读
@@ -403,7 +405,7 @@ Agent 的记忆系统、trace log 正是为补这三点。
 
 **多 Agent 通信模式**：黑板/共享状态（简单但需并发控制）、消息传递（异步队列解耦但有延迟）、直接调用（同步 RPC 简单但耦合）、对话（自然语言灵活但 token 成本高）。
 
-**易追问点**：AutoGen/CrewAI/Swarm 区别？答：AutoGen 以对话为核心（Agent 间对话消息协作，适合深度讨论）；CrewAI 强调角色分工（每个 Agent 有明确 role/goal，像项目团队）；Swarm（OpenAI）轻量级专注 handoff（适合简单流转）。
+**易追问点**：AutoGen/CrewAI/OpenAI Agents SDK 怎么区分？答：AutoGen 以多 Agent 对话协作为核心，CrewAI 强调角色和任务分工，OpenAI Agents SDK 用 Agent Loop、handoff、guardrail、session 和 tracing 组织轻量 Agent 应用。OpenAI Swarm 只适合解释 handoff 思想和历史演进，不再作为当前生产选型。
 
 ### 017. Agent 的能力边界在哪里？
 
@@ -1439,7 +1441,7 @@ class SearchArgs(BaseModel):
 
 **学术框架**（Guo et al. arXiv:2402.01680）：四轴——环境接口/Profiling/通信/能力获取。通信范式（Cooperative 协作/Debate 辩论/Competitive 竞争）× 通信结构（Layered 分层/Decentralized 去中心/Centralized 星型/Shared Message Pool 共享消息池，MetaGPT 首创）。
 
-**主流多 Agent 框架（2024-2025）**：AutoGen（Microsoft，对话驱动，GroupChat/Docker 执行，**已转维护模式→MAF**）、CrewAI（角色分工，role/goal/backstory，Sequential/Hierarchical）、MetaGPT（SOP 流程模拟软件公司，`Code=SOP(Team)`，ICLR 2024）、LangGraph（状态图，Supervisor/Swarm/Handoff）、OpenAI Swarm（轻量 handoff）。
+**主流多 Agent 框架与运行时**：AutoGen（Microsoft，对话驱动，当前有迁移到 MAF 的路线）、CrewAI（角色分工，Crew 与 Flow）、MetaGPT（SOP 流程，偏研究）、LangGraph（状态图，Supervisor/Swarm/Handoff）和 OpenAI Agents SDK（Agent Loop、handoff、guardrail、session、tracing）。OpenAI Swarm 是 Agents SDK 之前的历史教学实验，只用于理解轻量 handoff，不作为当前生产选型。
 
 **Anthropic 多 Agent 研究系统实践（2025）**：多 Agent（Opus 4 主+Sonnet 4 子）比单 Agent 高 90.2%；并行砍 90% 研究时间；多 Agent 用 ~15x 聊天 token，token 解释 80% 性能方差；子 Agent 各自独立上下文窗口压缩后回传主 Agent（"搜索的本质是压缩"）。失败模式：早期简单查询 spawn 50 个子 Agent；模糊指令致重复工作；同步执行成瓶颈。
 
@@ -1449,7 +1451,7 @@ class SearchArgs(BaseModel):
 
 **多 Agent 安全风险**：级联注入（一个 Agent 被注入污染整网）、角色劫持（伪装管理者越权）、合谋（多 Agent 形成共谋绕过监督）、涌现未对齐行为。对策：Agent 间通信视为不可信跨边界做指令过滤；每 Agent 最小权限+完全仲裁；消息签名/身份验证。
 
-**易追问点**：AutoGen/CrewAI/Swarm 区别？答：AutoGen 以对话为核心（Agent 间对话消息协作适合深度讨论）；CrewAI 强调角色分工（每个 Agent 有明确 role/goal 像项目团队）；Swarm（OpenAI）轻量级专注 handoff（适合简单流转）。
+**易追问点**：AutoGen/CrewAI/OpenAI Agents SDK 区别？答：AutoGen 以 Agent 间对话协作为核心，CrewAI 强调角色、任务和流程分工，OpenAI Agents SDK 侧重轻量 Agent Loop 与 handoff，并补上 guardrail、session 和 tracing。Swarm 是它之前的教学项目，面试里可以讲思想，不能当成当前生产框架推荐。
 
 ### 062. Agent 如何进行任务优先级排序？
 
@@ -2125,9 +2127,9 @@ class SearchArgs(BaseModel):
 | Skill | 应该怎么做 | 任务方法论+资源 |
 | Tool | 单个能力调用 | 函数 |
 
-**MCP（Model Context Protocol）—— 2024 里程碑**：Anthropic 开源的客户端-服务器协议，把"工具、资源、提示词"标准化暴露。架构：Host（AI 应用）→ Client（连接器）→ Server（能力提供方）。三原语：Tools（有副作用函数）、Resources（只读数据，RAG 检索点）、Prompts（可复用模板）。传输：stdio（本地）/ Streamable HTTP（远程）。生命周期：initialize→initialized→运行→shutdown（有状态协议）。
+**MCP（Model Context Protocol）**：标准化 Host、Client、Server 之间的能力接入。三类 Server 原语更准确的区别是控制方：Tool 通常由模型决定调用，Resource 通常由应用选择读取，Prompt 通常由用户选择；Tool 可以只是只读查询，Resource 也不能因为叫 Resource 就跳过授权。传输主要看 stdio 和 Streamable HTTP，生命周期包含初始化与能力协商。
 
-**版本演进**：`2024-11-05`（首版）→ `2025-03-26`（版本协商）→ `2025-06-18`（正式版本协商）→ `2025-11-25`（最新稳定版）。
+**版本演进**：`2024-11-05`（首版）→ `2025-03-26`（协议修订版）→ `2025-06-18`（协议修订版）→ `2025-11-25`（当前稳定版）。版本与能力协商属于 MCP 初始化生命周期的基础机制，不能把中间某一版说成“首次支持”或“正式支持”版本协商；具体变化应按对应 Changelog 回答。
 
 **安全原则**：用户显式同意所有数据访问、工具描述视为"不可信除非来自可信 Server"、Sampling 需用户审批、Roots 定义 Server 可操作边界。
 
@@ -2153,9 +2155,9 @@ Host 每 Server 创建一个 Client，一个 Host 可管多 Client 接多 Server
 
 | 原语 | 方法 | 用途 |
 | --- | --- | --- |
-| Tools | `tools/list`、`tools/call` | 有副作用函数调用 |
-| Resources | `resources/list`、`resources/read`、`resources/subscribe` | 只读数据/上下文（RAG 检索点） |
-| Prompts | `prompts/list`、`prompts/get` | 可复用 prompt 模板 |
+| Tools | `tools/list`、`tools/call` | 模型控制的可调用能力；可读也可写 |
+| Resources | `resources/list`、`resources/read`、`resources/subscribe` | 应用控制读取的 URI 化上下文 |
+| Prompts | `prompts/list`、`prompts/get` | 用户控制选择的模板化消息 |
 
 Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向用户请求信息）、Logging。
 
@@ -2163,11 +2165,11 @@ Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向
 
 **传输层**：stdio（本地进程零网络开销）、Streamable HTTP（HTTP POST+可选 SSE，支持 OAuth）。
 
-**生态（2024-2025）**：Claude、ChatGPT、VS Code、Cursor 等支持。已有文件系统、数据库、GitHub、Slack、浏览器等大量 MCP Server。Tasks（实验性）提供持久执行包装。
+**生态与 Tasks**：MCP 已有多类客户端和 Server。Tasks 是当前实验性的长任务协议，用于创建、查询、取结果和取消任务；它不会自动让业务代码具备 Durable Execution、Exactly-once 或副作用幂等。
 
 **与 Function Calling 关系**：Function Calling 是单次工具调用机制，MCP 是工具/资源标准化协议。MCP Server 的工具通过 Function Calling 被调用——MCP 是"工具的 USB-C"，Function Calling 是"调用动作"。
 
-**易追问点**：MCP 的 Resources 和 Tools 有什么区别？答：Resources 是只读数据/上下文（`resources/read`），适合 RAG 的"检索后喂上下文"；Tools 是有副作用函数（`tools/call`）。只读查询用 Resource，有写操作用 Tool。
+**易追问点**：MCP 的 Resources 和 Tools 有什么区别？答：不要按只读/写入硬分。Resource 偏应用选择并读取上下文，Tool 偏模型决定调用一个能力；只读查询也可以设计成 Tool。真正选型还要看交互控制方、发现方式、权限和返回契约。
 
 ### 095. 如何控制工具的权限？
 
@@ -2193,7 +2195,7 @@ Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向
 
 **Prompt 约束 vs 系统硬约束**：Prompt 是软约束可被绕过，allowed-tools 声明+系统权限控制+审批机制是硬约束。权限和审批必须是系统级。
 
-**MCP Roots**：client 原语，定义 Server 可操作的 URI/文件系统边界，用于范围限定与越界防护。
+**MCP Roots**：Client 提供建议的 URI/文件系统范围，帮助 Server 确定工作边界，但不是强制访问控制或操作系统 Sandbox。Server 仍要做路径规范化、授权、隔离和审计。
 
 **易追问点**：allowed-tools 写了就安全吗？答：不够。它只是声明或平台可用的约束信号，真正安全还需运行时权限控制、审计日志和组织策略。权限控制必须是系统级硬约束，不能只靠 prompt 或声明。
 
@@ -2213,13 +2215,13 @@ Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向
 | AutoGen | 多 Agent 对话 | GroupChat/Conversable Agent | **维护模式→MAF** |
 | CrewAI | 角色分工 | Crew/Agent/Task/Process | 活跃 |
 | MetaGPT | SOP 流程 | 角色+SOP | 活跃（偏研究） |
-| OpenAI Swarm | 轻量 handoff | Agent/routine/handoff | OpenAI |
+| OpenAI Swarm | 历史教学实验 | Agent/routine/handoff | 已由 Agents SDK 承接当前选型 |
 | Pydantic AI | 类型安全 | Agent+Pydantic | 活跃 |
 | Dify/Coze | 低代码平台 | 可视化编排 | 各自 |
 
 **评价维度**：状态管理、可观测性、工具生态、可控性、生产稳定性、学习曲线、社区活跃度。
 
-**2024-2025 趋势**：LangGraph 成为主流（LangChain 官方把生产级 Agent 编排收敛到 LangGraph，AgentExecutor 退役）；LangChain 重组（拆 langchain-core 与独立集成包）；AutoGen 转维护模式（继任者 Microsoft Agent Framework 1.0）；MCP 标准化工具接口；类型安全崛起（Pydantic AI）；SDK 直连回潮（简单场景直接用 SDK 而非框架）。
+**当前趋势**：LangChain v1 的高层 `create_agent` 基于 LangGraph；旧 `AgentExecutor` 已迁到 `langchain-classic`，适合存量迁移辨析，新项目不再推荐，但不能简单说代码已经不存在。AutoGen 进入维护模式并有 Microsoft Agent Framework 迁移路线；简单场景继续适合直接 SDK。
 
 **易追问点**：框架选型最该测什么？答：错误处理与可观测性——这两块 demo 阶段看不出来生产里最先暴露。选型初期多花 3 天调研原型验证，比后期迁移省 3 个月。
 
@@ -2231,7 +2233,7 @@ Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向
 
 **三层结构**：
 - **底层基础模块**：`LLM/ChatModel`（统一模型接口，`init_chat_model("openai:gpt-4o")`）、`Embeddings`、`Retrievers`。
-- **中层组织模块**：`Tools`（`@tool` 装饰器，docstring 自动转工具描述）、`Memory`（Buffer/Summary/TokenBuffer/Entity）、`Chains/Runnable`（LCEL 用 `|` 管道串联）。
+- **中层组织模块**：`Tools`、`Middleware`、Structured Output、Retrieval 和 Runnable/LCEL。Buffer、Summary、TokenBuffer、Entity 等旧 Memory 类属于 Classic/历史面试题；当前短期状态重点讲 Checkpointer 与 Middleware，长期记忆讲 Store。
 - **顶层应用模块**：`Agents`（ReAct、Tool-Calling）、`RAG`。
 
 **LCEL（LangChain Expression Language）**：`prompt | llm | output_parser`，支持流式、并行、异步、细粒度错误处理，取代旧 `LLMChain` 类。
@@ -2261,16 +2263,15 @@ Client 原语：Sampling（Server 反向请求 client LLM）、Elicitation（向
 | 维度 | LangChain | LangGraph |
 | --- | --- | --- |
 | 定位 | 组件库（零件） | 工作流编排（骨架） |
-| 状态 | 隐式（AgentExecutor） | 显式（StateGraph+TypedDict） |
-| 循环 | 弱 | 原生支持（条件边） |
-| HITL | 弱 | 原生 interrupt |
-| 故障恢复 | 无 | checkpointer 原生 |
-| 多 Agent | 需手写 | Supervisor/Swarm/Handoff |
-| 适用 | 线性链、原型 | 复杂有状态生产 Agent |
+| 状态 | `create_agent` 提供高层 Agent State，底层基于 LangGraph | 显式 StateGraph、Reducer 和 Schema |
+| 控制流 | 标准工具循环和 Middleware | 自定义 Node、Edge、循环与并行 |
+| HITL/恢复 | 可通过底层 LangGraph Checkpointer、Interrupt 和 Middleware 使用 | 直接控制 Checkpointer、Interrupt 和恢复点 |
+| 多 Agent | Subagent、Handoff、Router、Skill 等高层模式 | 自定义 Supervisor、Handoff 和子图 |
+| 适用 | 常规 Tool Agent 与生态集成 | 需要完全控制状态和流程的复杂系统 |
 
-**2024-2025 关键转变**：LangGraph 成为主流——LangChain 官方明确把生产级 Agent 编排收敛到 LangGraph，AgentExecutor 被定位为遗留方案。
+**关键转变**：LangChain v1 的 `create_agent` 构建在 LangGraph 上，二者是高层 Harness 与低层编排的关系；旧 `AgentExecutor` 在 `langchain-classic` 中服务存量迁移。
 
-**生产级能力**：Durable execution（跨重启恢复，≤25MB checkpoint）、Time-travel（回滚任意历史状态）、长短时记忆（Memory Store 语义检索）、Streaming（多模式）、多 Agent 模式（Supervisor/Swarm/Handoff/Hierarchical）。部署：LangGraph Platform（2025-10 更名 LangSmith Deployment）提供托管运行时/任务队列/自动扩缩容/A2A/MCP 支持。
+**生产级能力**：OSS LangGraph 提供 Checkpoint、Interrupt、Time Travel、Store、Streaming 和子图等原语；具体大小、保留期和吞吐取决于 Saver 与部署，不能套一个通用 25MB 上限。Time Travel 是从历史 State 分叉或重放，不会回滚外部数据库。LangSmith Deployment/Agent Server 另提供托管持久化、任务队列和扩缩容，不能和 OSS 包默认能力混为一谈。
 
 **易追问点**：何时该用 LangGraph？答：出现"失败重试""按 LLM 输出分支""多 Agent 来回对话""任意点恢复""HITL"任一→用 LangGraph；简单线性 A→B→C 用 LCEL 即可。
 
@@ -2341,23 +2342,15 @@ Action: finish[答案]
 
 **易追问点**：CrewAI 和 LangGraph 怎么选？答：需要"拟人化团队"直觉可读性、多 Agent 上手快→CrewAI；需要精细图状态/循环→LangGraph；两者可组合（LangGraph 做顶层，Crew 执行子任务）。
 
-### 102. OpenAI Assistants API 有哪些核心功能？
+### 102. OpenAI Assistants API 是什么历史能力，当前怎么回答？
 
 **答：**
 
-**核心功能**：托管会话状态、运行过程、工具调用、文件能力、代码执行。优点是省基础设施，代价是灵活性和可迁移性受限。
+**历史定位**：Assistants API 提供 Thread、Run、托管工具和文件等服务端对象，适合解释存量系统。当前新设计应先按官方迁移指南评估 Responses API 与 Agents SDK，不要把 Assistants、Responses、Agents SDK、Web Search、Computer Use 和 Sandbox Agent 的能力混成一张旧表。
 
-**Code Interpreter**：内置 Python 沙箱，可上传多种文件、运行代码、生成图表。文件在 session 内持久化（默认 1 小时），写入 `sandbox:/mnt/data/`。按 session 计费 $0.03/session。
+**当前回答方式**：Responses API 是模型响应与内置能力的底层 API；Agents SDK 在其上提供 Agent Loop、Tool、Handoff、Guardrail、Session、HITL 和 Trace 等应用框架能力。具体模型、工具、价格、文件保留和下线时间变化快，面试前必须查官方当日文档，不能背本文旧数字。
 
-**重要更新（2025）**：Assistants API 计划 2026.8.26 下线，迁移到 Responses API。OpenAI Agents SDK 区分 Responses API（单次调用+应用逻辑）vs Agents SDK（应用持有编排）。
-
-**内置工具**：code_interpreter、web_search、Computer Use（CUA）。Custom Tools 支持 `type:"custom"` 接受自由文本+CFG 约束。
-
-**OpenAI Computer Use (CUA)**：computer tool 动作含 click/double_click/scroll/type/wait/keypress/drag/move/screenshot，gpt-5.4 专门训练；三种集成路径（内置循环/自定义 harness/代码执行 harness）。
-
-**优点**：省基础设施、托管状态、内置工具开箱即用。**代价**：供应商锁定强、定制受限、成本高、迁移到 Responses API 有 breaking change。
-
-**易追问点**：Assistants API 和 Responses API 区别？答：Assistants API 托管会话状态和运行过程（省基础设施但锁定强）；Responses API 是单次调用+应用持有逻辑（更灵活但需自管状态）。OpenAI 正推动从 Assistants 迁移到 Responses。
+**迁移关注点**：对象模型、对话状态、Tool Schema、文件、Streaming Event、审批暂停、Trace、数据保留和幂等都要逐项迁移。存量 Assistants 系统可以维护，但新项目不应因为过去省事就忽略锁定和迁移成本。
 
 ### 103. 如何选择适合项目的 Agent 框架？
 
@@ -2378,10 +2371,10 @@ Action: finish[答案]
 
 | 框架 | 多 Agent | 流程灵活性 | 状态/循环 | 维护状态 |
 | --- | --- | --- | --- | --- |
-| LangChain | 有限 | 中 | 弱 | 活跃 |
+| LangChain v1 `create_agent` | 支持多种高层模式 | 中高 | 基于 LangGraph，可持久状态与 HITL | 活跃 |
 | LangGraph | 原生 | 高 | 强（图） | 活跃，主流 |
-| LlamaIndex | 弱 | 中 | 弱 | 活跃 |
-| CrewAI | 原生 | 中 | 弱（Flows 补强） | 活跃 |
+| LlamaIndex | AgentWorkflow/FunctionAgent | 中高 | Workflow、Context 与 Checkpoint 能力按版本核对 | 活跃 |
+| CrewAI | 原生 | 中高 | Flow State/Persistence 与 Crew Loop | 活跃 |
 | AutoGen | 原生 | 高 | 强 | 维护模式→MAF |
 
 **常见陷阱**：过早自研、迷信热门、低估迁移成本、只看框架不看模型成本。
@@ -3753,9 +3746,9 @@ Action: finish[答案]
 
 **评价维度**：抽象能力、状态管理、可观测性、工具生态、部署复杂度、锁定风险、生产案例。没有万能框架。
 
-**主流框架全景（2024-2025）**：LangChain（全栈生态，活跃）、LangGraph（状态图编排，活跃主流）、LlamaIndex（RAG 优先，活跃）、AutoGen（多 Agent 对话，**维护模式→MAF**）、CrewAI（角色分工，活跃）、MetaGPT（SOP 流程，偏研究）、OpenAI Swarm（轻量 handoff）、Pydantic AI（类型安全）、Dify/Coze（低代码）。
+**主流框架全景**：LangChain（高层 Agent 与集成生态）、LangGraph（状态图编排）、LlamaIndex（数据、RAG 与 Agent Workflow）、AutoGen（存量维护并迁移 MAF）、CrewAI（Crew 与 Flow）、OpenAI Agents SDK（Agent Loop/Handoff/Guardrail）、PydanticAI（类型安全）、Dify/Coze（低代码）。OpenAI Swarm 只作为 Agents SDK 之前的历史教学项目，不作为当前生产选型。
 
-**2024-2025 趋势**：LangGraph 成为主流（AgentExecutor 退役）；LangChain 重组（拆 langchain-core）；AutoGen 转维护模式（继任者 MAF 1.0）；MCP 标准化工具；类型安全崛起（Pydantic AI）；SDK 直连回潮（简单场景直接用 SDK）。
+**当前趋势**：LangChain v1 `create_agent` 基于 LangGraph；`AgentExecutor` 迁到 `langchain-classic`；AutoGen 进入维护模式并有 MAF 迁移路线；MCP 标准化能力接入；类型安全与直接 SDK 同时发展。所有结论都要绑定版本。
 
 **”是否用框架”决策**：原型/Demo→LangChain/LlamaIndex 快速搭；标准 RAG→LlamaIndex 或直接 SDK；生产可控 Agent→LangGraph 或自研核心；多 Agent 协作→AutoGen/CrewAI；强类型→Pydantic AI；无代码→Dify/Coze；极致性能/定制→自研+SDK。
 
@@ -4630,7 +4623,7 @@ Agent Runtime（运行时环境，最外层）
 
 **为什么需要分层**：模型层负责智能（可替换供应商升级）；Harness 层负责控制（工程可控决定可靠性）；Runtime 层负责运行（部署运维）。分层让智能、控制、运行解耦——换模型不动 Harness，换框架不动业务。
 
-**不同 Framework 的 Harness 实现**：LangGraph（显式 StateGraph 节点+边+状态）、LangChain AgentExecutor（封装 ReAct 循环）、AutoGen（对话驱动循环）、OpenAI Assistants/Agent SDK（托管式 Harness）、自研（按需实现）。
+**不同 Framework 的 Harness 实现**：LangChain v1 `create_agent`（高层 Agent Harness，底层基于 LangGraph）、LangGraph（显式 StateGraph 节点、边和状态）、AutoGen（存量的对话驱动循环）、OpenAI Agents SDK（Agent Loop、Tool、Handoff、Guardrail 和 Session）、自研（按需实现）。`AgentExecutor` 仍存在于 `langchain-classic`，只适合解释历史 API 和存量迁移，不应再当成 LangChain 当前入口。
 
 **易追问点**：模型升级能替代 Harness 优化吗？答：不能。模型更强可减少错误，但权限、预算、工具失败、审计和终止仍必须由 Harness 控制。
 
@@ -4704,7 +4697,7 @@ Agent Runtime（运行时环境，最外层）
 
 **Loop 不必每轮调 LLM**：规则节点（确定性判断直接执行）、状态机转移（按状态自动流转）、工具结果直连（简单结果直接进下一步）可绕过 LLM。混合 Loop（LLM 决策+确定性节点）是生产主流省成本提速度。
 
-**handoff 机制**（OpenAI Swarm 思想）：不是工具调用是控制权转移——当前 Agent 把任务交给另一个 Agent，切换指令集/工具集/权限边界，trace 归属切换。类函数调用转给另一个"主控"。
+**handoff 机制**（OpenAI Agents SDK 当前能力，Swarm 曾用于教学演示）：它不是普通业务工具调用，而是把后续任务控制权交给另一个 Agent，通常会切换指令、工具集合和权限边界，并在 Trace 中保留交接关系。底层可以表现为一次结构化调用，但语义上是更换后续主控 Agent。
 
 **循环常见故障模式**：死循环（重复调同工具→step limit+重复检测）、来回解释（在错误信息上纠结→反思/换策略/求助）、token 烧穿（追求完美不停→cost limit+满意度阈值）、卡在工具失败（无重试/replan→异常处理+replan）。
 
@@ -5085,7 +5078,7 @@ Agent Runtime（运行时环境，最外层）
 
 > 我理解的 SDD 不是“先写一篇文档再让 AI 生成代码”，而是把需求、约束、接口、失败语义和验收标准变成可以追踪的规格，让实现、测试和发布都能回到同一份合同。我没有完整使用过某个品牌化 SDD 平台，所以不会说自己熟练使用某个产品。
 >
-> 我实际做过的规格驱动方式包括：先写状态和接口契约，再拆任务；把“引用不能伪造”“校验失败进入 Draft”“增量更新不能混合版本”这类要求落成测试；重要取舍保留 ADR。下一步还可以给关键 Spec 编号，关联设计、代码、测试、评测和发布验收。这样说的是实际工作方法，不是追热点贴标签。
+> 从当前项目材料能确认的是，系统里已经有状态和接口契约，也把“引用不能伪造”“校验失败进入 Draft”“增量更新不能混合版本”等约束落进了实现或测试。但这些事实不能自动证明都是我个人负责的。面试前我会在事实清单里补齐自己在规格、实现、测试和 ADR 各阶段的 RACI，并准备对应文档、PR 或评测记录；证据没补齐时，我只说项目采用了这些方法，不把团队产出都说成我做的。
 
 ### 242. CodeWiki 在 Brownfield SDD 中能做什么，不能做什么？
 
@@ -5115,6 +5108,6 @@ Agent Runtime（运行时环境，最外层）
 
 **答：**
 
-> 我先把需求写成边界和验收条件，再让 AI 帮我做代码检索、方案比较或第一版补丁。生成结果必须经过我自己的源码核对、最小改动审查、单元和集成测试、静态检查以及 PR Review；涉及数据、权限和迁移时，还要补灰度、回滚和监控。失败时我会根据测试和 Trace 定位，不会不断换 Prompt 碰运气。
+> 我会先确认自己在这次变更里的 RACI，再按真实流程讲需求边界、验收条件、代码检索、方案比较和第一版补丁。AI 产出需要经过源码核对、最小改动审查、单元和集成测试、静态检查以及 PR Review；涉及数据、权限和迁移时，还要考虑灰度、回滚和监控。上述环节哪些由我负责、参与、咨询或只被知会，我会按实际记录回答，不把完整团队流程默认算成个人经历。
 >
-> 面试里我会拿一个真实变更讲清楚：需求是什么，AI 给了什么草稿，我改了哪些关键点，测试暴露了什么问题，最后谁 Review、怎么发布。AI 是效率工具，需求判断、架构取舍、验收和线上责任都在我。代码占比不是最重要的证据，能不能解释每个关键决策和失败分支才是。
+> 面试里我只会拿一项已经核实的真实变更来讲：需求是什么，AI 给了什么草稿，我本人改了哪些关键点，测试暴露了什么问题，以及 Review 和发布分别由谁负责。AI 是效率工具；需求判断、架构取舍、验收和线上责任的归属要以这项变更的真实 RACI 为准，不能为了显得完整就全部揽到自己身上。代码占比不是最重要的证据，能不能用材料证明自己的决策和交付边界才是。

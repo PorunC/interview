@@ -738,13 +738,13 @@ graph.invoke(Command(resume=True), config)
 
 **为什么这版更好：** 既不虚构经验，也不会只用一句“没用过”把话题结束。
 
-### Q74.【实际面试】CodeWiki 为什么没有直接用 LangGraph？
+### Q74.【实际面试】CodeWiki 当前为什么没有直接使用 LangGraph？
 
 **口语化回答：**
 
-> 当时最核心的流程是目录规划、证据收集、页面生成、服务端校验、有限修复和落库，主干相对明确，真正难的是代码证据边界和引用校验，不是通用 Agent 编排。我们用显式服务流程已经覆盖了阶段控制、有限重试、落库和失败后的可重跑复用；再引入 LangGraph 会增加依赖和迁移成本，但没有解决最难的证据可信问题。
+> 从当前代码看，CodeWiki 没有把 LangGraph 作为运行依赖。Wiki 生成走的是显式流程：先做目录规划和证据收集，再生成页面，经过服务端校验、有限修复后落库；同时把 `plan`、`evidence`、`save`、`validate` 这些能力暴露给上层 Agent 调用。所以更准确地说，它现在是“确定性服务流程加 Agent 工具接口”，还不是一套完整的自主 Agent Runtime。
 
-> 如果后面出现大量并行页面、跨天任务、人工审批、多 Agent 协作和复杂恢复，我会重新评估 LangGraph。我的选型不是反对框架，而是让复杂度和需求匹配。
+> 至于当时为什么没有选 LangGraph、这个决定是不是我做的，我会以 ADR、PR 和实际 RACI 为准，不会只根据今天的代码倒推出一段历史。如果后面出现大量并行页面、跨天任务、人工审批、多 Agent 协作和复杂恢复，我可以做一版 LangGraph PoC，把 State、Checkpoint、Interrupt、并行合并和迁移成本都测出来，再决定要不要重构；这属于迁移设计，不会说成已经落过地。
 
 ### Q75.【高频追问】如果用 LangGraph 重构 CodeWiki，State 和 Node 怎么设计？
 
@@ -1525,6 +1525,230 @@ flowchart LR
 
 > Plugin、Tool 和 MCP Server 都是可执行能力，不只是依赖包。我会固定 Server 身份与版本，校验 Tool Schema 变化，限制网络、文件和密钥，禁止未经评审的自动发现直接进入生产。发现维护模式、所有权变化或发布链异常时，先冻结升级并准备替换路径，不能让依赖供应链变成 Agent 的隐形最高权限。
 
+### Q173.【LangGraph State】`TypedDict`、`dataclass` 和 Pydantic State 怎么选？
+
+**口语化回答：**
+
+> 我一般把 `TypedDict` 当默认选择，它轻量，适合图内部高频流转；State 需要默认值时，我会考虑 `dataclass`；如果要对入口嵌套数据做运行时校验，可以用 Pydantic，但性能和序列化成本会更高。当前官方还明确写了一个限制：Pydantic 校验只发生在图输入到第一个 Node 时，后续 Node 更新和最终输出不会自动逐步校验，所以关键业务字段仍要在对应 Node 显式验证。
+
+> 还有一个版本边界要说清楚：手写 `StateGraph` 支持 Pydantic State，但当前高层 `create_agent` 不支持把 Pydantic 模型直接当自定义 State Schema。外部请求我通常先用 Pydantic 做边界校验，再转成图内部的轻量 State，不会为了全程强校验把连接、密钥或大对象塞进 State。
+
+### Q174.【LangGraph Compile】`compile()` 能检查什么，为什么编译通过还会线上死循环？
+
+**口语化回答：**
+
+> `compile()` 会把 Builder 变成可执行图，做一部分结构检查，比如孤立 Node，并在这里挂 Checkpointer、Store、Cache 和断点配置。它能发现的是静态结构问题，不能证明条件路由一定能走到结束，也不能证明并行写没有语义冲突、Tool 有权限、外部副作用幂等。
+
+> 所以编译通过只是第一关。我还会给每条条件路由做单测，给循环设置 Step、时间、Token、Tool 和费用上限，再做超时、重复执行、进程中断和无合法路由的故障测试。能画出图，不等于这张图在所有输入上都能正确收敛。
+
+### Q175.【LangGraph 可视化】图画出来和实际运行轨迹为什么可能不一样？
+
+**口语化回答：**
+
+> 可视化展示的是声明出来的可能拓扑，不是某一次请求真实走过的路径。普通 Edge 最容易画准；Node 返回 `Command` 时，要用 `Command[Literal[...]]` 标出可能目标，渲染器才知道动态边；Tool 里的动态跳转、运行时生成的 `Send` 和外部条件，静态图也不一定能完整表达。
+
+> 我会把图当设计说明，把 Trace、Stream Event 和 Checkpoint History 当运行证据。排障时我看这次到底执行了哪些 Node、每次输入输出、重试和路由原因，而不是指着一张 Mermaid 图说系统一定按这条线走。图和代码版本也要绑定，不然旧图很容易误导。
+
+### Q176.【LangGraph 数据泄露】Private State 会不会被 Streaming 暴露？
+
+**口语化回答：**
+
+> 会有这个风险。Input、Output 和 Private Schema 主要控制 Node 读什么、`invoke()` 最终返回什么，不是保密机制。官方当前文档明确提醒，`values` Streaming 默认可能发出全部 State Channel，Private Channel 也可能在里面；需要时要用 `output_keys` 限定字段，或者只消费经过服务端转换的 `updates` 和业务事件。
+
+> 我的原则是敏感数据先别进 State；确实需要时做最小化、加密、脱敏和保留期。服务端再定义单独的前端 DTO 和事件白名单，Trace、Checkpoint、日志、调试接口也一起审计。字段叫 `private`，不代表它天然不会出现在流、存储或观测系统里。
+
+### Q177.【LangGraph 参数边界】State、`RunnableConfig` 和 Runtime Context 怎么分？
+
+**口语化回答：**
+
+> State 放需要随任务推进、可能进入 Checkpoint 的业务进度；`RunnableConfig` 放这次调用的执行配置和观测信息，比如 `thread_id`、Tag、Metadata、Callback、并发或递归限制；Runtime Context 放服务端注入的用户、租户、环境和依赖。数据库连接、HTTP Client 和密钥不应该被序列化进 State。
+
+> 但这些名字本身不构成信任边界。前端传来的 `thread_id`、Metadata 和用户 ID，我都会先做认证、归属校验和限额，再生成服务端可信 Context。需要恢复的审批结果不能只放进进程内 Context，需要审计的业务版本也不能只写 Tag；我会按“是否参与业务真相、是否需要恢复、是否允许客户端控制”来分。
+
+### Q178.【LangChain 工具边界】Node、普通 Tool 和 Headless Tool 有什么区别？
+
+**口语化回答：**
+
+> Node 是工作流控制单元，由 Edge 或 Command 调度；普通 Tool 是暴露给模型的有名能力，模型根据名称、描述和参数 Schema 决定要不要调用，函数通常在服务端执行。Headless Tool 只有名称、描述和参数 Schema，真正实现放在浏览器或其他客户端，服务端收到 Tool Call 后先 Interrupt，客户端执行完再 Resume。
+
+> 我只在确实依赖本地环境时用 Headless Tool，比如剪贴板、文件选择器或 Canvas。客户端执行不代表可以绕过鉴权，服务端仍要校验 Tool Call、用户、参数和 Resume 结果，高风险动作还要确认和审计。能由确定性业务流程决定的步骤，我会直接做 Node，不会多绕一次模型 Tool 选择。
+
+### Q179.【LangChain ToolRuntime】为什么 `config` 和 `runtime` 不能随便做 Tool 参数？
+
+**口语化回答：**
+
+> 当前工具接口把 `config` 和 `runtime` 作为保留参数名。模型只应该看到真正需要它填写的业务参数；State、Context、Store、Stream Writer、Execution Info、Server Info、Callback 和 Tool Call ID 这些由框架通过 `ToolRuntime` 注入，不应该让模型在 JSON 参数里伪造。
+
+> 我会把 Tool Schema 做得窄而清楚，把用户身份、权限和租户从服务端 Runtime 取出来，再在 Tool 内做资源级授权。隐藏参数只是减少模型输入面，不等于自动安全；Tool 仍要校验对象归属、操作范围、幂等键和审计字段，也不能把 Runtime 里的密钥拼回模型可见结果。
+
+### Q180.【Tool 排障】模型调 Tool 失败后，应该把什么反馈给模型？
+
+**口语化回答：**
+
+> 我先分四类。参数格式错，可以返回短、结构化、可修复的错误，让模型最多重试一两次；限流和网络抖动由执行层退避重试，不浪费一次模型推理；权限不足或业务拒绝直接给稳定错误码，不允许模型换个说法绕过；未知异常对模型只给安全摘要，详细堆栈留在 Trace。
+
+> 关键是不能把数据库错误、内部 URL、Token 或大段 HTML 原样塞回上下文。写操作每次重试都带同一个业务幂等键，执行前后记账；连续失败就走降级、人工处理或失败节点。让模型知道“下一步能做什么”有用，让模型看到全部内部异常通常既不安全，也不利于恢复。
+
+### Q181.【Server-side Tool】模型厂商内置的 Web Search、Code Interpreter 和本地 Tool 有什么不同？
+
+**口语化回答：**
+
+> 本地 Tool 的 Schema、执行代码、网络和日志主要由我的应用控制；Server-side Tool 是模型厂商在它的服务侧执行，应用通常拿到调用记录和结果，但看不到同样粒度的内部执行过程。它接入快，但数据会进入哪一侧、能访问哪些网络、怎么计费、引用能不能复核，都要按具体 Provider 文档确认。
+
+> 我不会因为它是官方内置就默认可信。内部数据能不能发给这个 Tool，要经过出域和合规策略；返回内容仍按不可信外部输入处理，防 Prompt Injection 和恶意链接；高风险副作用仍放自己的受控 Tool。需要完整沙箱、网络白名单和审计时，我更倾向自己托管执行环境。
+
+### Q182.【限流与重试】Model Rate Limiter、Node Retry 和 Circuit Breaker 怎么配合？
+
+**口语化回答：**
+
+> Rate Limiter 是调用前主动控速，避免持续撞 Provider 配额；Node Retry 处理已经发生的瞬时失败，要按异常类型、退避和总 Deadline 决定；Circuit Breaker 在下游持续异常时快速失败，给系统恢复空间。LangChain 的内存限流器只能管单进程请求速率，不能替代分布式租户配额，也不能按 Token 大小自动限流。
+
+> 我会统一一次请求的 Deadline、重试预算和费用预算，避免 SDK、HTTP Client、Node 和队列四层各重试三次，把一次请求放大几十次。限流按 Provider、模型、租户和优先级分桶；熔断后走备用模型、排队、降级或明确失败。写 Tool 不跟着模型重试盲目重放，还是用业务幂等和状态核对收口。
+
+### Q183.【异步并发】用了 `ainvoke()`、`batch()` 和 `max_concurrency`，为什么系统还是会被打挂？
+
+**口语化回答：**
+
+> 异步只是在等待 IO 时不占住线程，不会凭空增加数据库连接、Provider 配额、内存和下游吞吐。`batch()` 往往是在客户端并发调用，也不等于厂商的离线 Batch API；`max_concurrency` 只控制它覆盖到的那一层，如果 Graph、Tool、HTTP Client 和队列各自再展开，并发仍会乘起来。
+
+> 我会从入口到下游统一做有界队列、Semaphore、连接池、超时、租户公平和背压，动态 Fan-out 还要限制任务数量和每批大小。监控不能只看平均延迟，还要看排队时间、活跃任务、连接池等待、429、内存、取消量和 P95/P99。过载时宁可排队、降级或拒绝，也不能无限创建协程。
+
+### Q184.【LangGraph Send】动态 Fan-out 一次生成几千个 `Send`，怎么防止并发爆炸？
+
+**口语化回答：**
+
+> `Send` 适合运行时才知道数量的 Map-Reduce，但我不会把输入列表原样全部展开。先做数量和单项大小上限，再按批次或分页生成任务，配合全局和租户并发限制；结果 Channel 用明确 Reducer 聚合，每个子任务带稳定 ID，重试时可以去重。
+
+> 并行完成顺序通常不能当业务顺序，我会按稳定 Key 排序或在 Reducer 里保留索引。单个分支失败时，是允许部分结果、重试这一项、降级还是整批失败，要在 State 里明确。几千个 `Send` 能表达出来，不代表数据库、模型和 Checkpointer 扛得住，容量要用压测和故障注入证明。
+
+### Q185.【Streaming 生产题】客户端断线后，Agent 是继续、取消还是恢复？
+
+**口语化回答：**
+
+> Streaming 是结果交付通道，和后台任务生命周期不是一回事。客户端断线后是否取消，要按业务决定：短聊天可以传播取消，长研究任务通常继续跑并把状态持久化。Checkpoint 能恢复图状态，但不会自动替我补发已经展示过的 Token，也不能证明外部 Tool 没重复执行。
+
+> 我会给事件加 Run ID、单调序号和类型，服务端保存关键业务事件或最终 Artifact，前端重连时先查 Run 状态，再从可用游标补事件；补不了逐 Token 时就返回当前快照和最终结果。取消也要协作式处理：停止领新步骤、保存可恢复边界，写操作先确认结果，不能断线就粗暴重跑整条图。
+
+### Q186.【失败收口】LangGraph 里怎么做 Circuit Breaker、补偿和 Dead-letter？
+
+**口语化回答：**
+
+> 这些不是加一个 Checkpointer 就自动拥有的。瞬时错误先由 Retry Policy 处理，重试耗尽后可以用 Error Handler 或条件路由进入降级、补偿或失败节点；持续下游故障的熔断状态通常放共享基础设施；最终无法自动处理的任务写入业务失败表或消息系统的 Dead-letter，并保存错误分类、输入引用、Graph 版本、Checkpoint 和幂等键。
+
+> 补偿也不是简单执行反向函数。发消息可以再发撤回通知，转账却要走独立冲正流程和权限审批。我会先查原动作是否真的成功，再决定重试、补偿还是人工处理；修复后从明确 Checkpoint 或新任务恢复，并保证同一个失败事件只被认领一次。最终业务状态以业务库为准，不以 Trace 里最后一个 Node 名称为准。
+
+### Q187.【可观测性】LangChain/LangGraph 上线后，最少要看哪些指标？
+
+**口语化回答：**
+
+> 我会分四层看。业务层看任务成功率、正确率、人工接管和用户放弃；图层看每个 Node 的延迟、错误、重试、超时、循环步数和路由分布；模型与 Tool 层看 Token、费用、429、Tool 选择、参数校验和副作用成功率；基础设施层看队列、并发、连接池、Checkpoint 大小和存储增长。
+
+> 每次运行用统一 Trace ID、Run ID、Thread ID 和业务 ID 串起来，但敏感输入只记摘要或引用。告警要对 SLO 和错误预算负责，比如成功率下降、P95 超预算、重复副作用或 Checkpoint 激增，而不是“日志里有 Exception”就全报警。Trace 帮我解释单次失败，指标帮我发现系统性回归，两者不能互相替代。
+
+### Q188.【LangGraph 测试】怎么分别测试 Node、局部路径、恢复和整张图？
+
+**口语化回答：**
+
+> 纯业务函数先普通单测；编译后的 `graph.nodes[...]` 可以单独调用某个 Node，但官方明确提醒，这会绕过挂在图上的 Checkpointer，所以不能拿它证明恢复正确。局部路径可以用独立 Checkpointer，先通过 `update_state(..., as_node=...)` 构造前置状态，再在目标 Node 后设置 Interrupt；整图测试则固定模型和 Tool Stub，断言路由、State 和输出契约。
+
+> 恢复测试我会真的在 Node、Tool 和 Interrupt 附近注入超时、进程终止和重复 Resume，检查哪些步骤重放、写操作是否重复、旧 Checkpoint 能否被新版本读取。每个测试使用独立 Thread 和存储，避免状态串用；再用少量真实模型做离线评测，不能让单元测试偷偷依赖网络模型，也不能只测 Happy Path。
+
+### Q189.【LangGraph Functional API】`@entrypoint`、`@task` 和 Graph API 怎么选？
+
+**口语化回答：**
+
+> Functional API 用 `@entrypoint` 包住现有工作流函数，用 `@task` 标记可独立记录和执行的调用，可以继续写普通的 `if`、`for` 和函数调用；Graph API 则显式定义 State、Node、Reducer 和 Edge。两者共用底层 Runtime，也可以组合，不是两套互斥产品。
+
+> 已有 Python 流程想少改代码地加持久化、Streaming、HITL，我会先看 Functional API；需要团队看清拓扑、并行合并和状态契约时，我会用 Graph API。Functional API 的动态图不支持同样的静态可视化，而且它的局部变量不是跨函数共享 State；不能因为代码像普通函数，就忽略 Checkpoint 和 Replay 语义。
+
+### Q190.【Functional API Replay】为什么恢复时会从 `entrypoint` 开头重放，`@task` 还要幂等？
+
+**口语化回答：**
+
+> 恢复不是从暂停那一行继续执行。Functional API 会从 `entrypoint` 开头 Replay，但已经完成的 Task 和子图结果会从 Checkpointer 取回，不再重新计算；已经开始但没有完成的 Task 仍可能重跑。所以当前时间、随机数、外部读取和副作用应该放进独立 `@task`，让重放能对齐保存过的结果。
+
+> `@task` 也不是 Exactly-once。发送邮件、写库、扣款这类动作仍要用稳定幂等键、执行账本或先查后写；多个 Interrupt 的顺序也必须保持稳定，因为 Resume Value 是按顺序匹配的。代码升级如果改变 Task 或 Interrupt 的顺序，要用旧 Checkpoint 做兼容测试，不能假设装饰器会自动迁移历史。
+
+### Q191.【Persistence 运维】生产 Checkpointer 除了换成 Postgres，还要做什么？
+
+**口语化回答：**
+
+> 我会先区分 OSS LangGraph 和 Agent Server。OSS 里我要自己选 Saver、初始化表结构、管理连接池、事务、序列化、加密、备份、迁移和清理；Agent Server 默认把 Checkpoint 放 PostgreSQL，也可以按当前文档切 MongoDB 或自定义 Backend，但 Assistant、Thread、Run 等核心资源仍需要 PostgreSQL，不能理解成整个 Server 都换走了。
+
+> 运维上我会给 Thread 和 Tenant 建明确索引，限制单个 Checkpoint 大小，配置 TTL 或归档，验证删除能覆盖 Checkpoint、Store、Trace 和 Artifact；序列化格式、Graph 版本和 State Schema 一起版本化。发布前用旧快照做恢复，数据库故障时验证写入模式和业务降级。能把 State 存进去只是起点，长期增长、隐私删除和升级才是生产难点。
+
+### Q192.【Checkpoint 深挖】`thread_id`、`checkpoint_id` 和 `checkpoint_ns` 分别解决什么？
+
+**口语化回答：**
+
+> `thread_id` 标识一条连续运行历史，决定我在恢复哪次会话或任务；`checkpoint_id` 定位这条 Thread 里的某个具体快照，用于查看历史或从旧状态分叉；`checkpoint_ns` 用来隔离父图、子图或不同 Checkpoint 命名空间。它们都应该由服务端做租户归属校验，不能让用户猜 ID 读取别人的 State。
+
+> 从旧 Checkpoint 继续通常会形成新的后续历史，不是把外部数据库一起回滚。做 Time Travel 前，我会确认这条分支是否允许重新调用 Tool，并给新 Run 和外部动作新的 Lineage 与幂等约束。清理 Thread 时还要处理子图 Namespace、Store 和 Artifact，不能只删最新一条快照就宣称完成被遗忘权。
+
+### Q193.【Agent Server】Graph、Assistant、Thread 和 Run 是什么关系？
+
+**口语化回答：**
+
+> Graph 是部署的代码和控制流蓝图；Assistant 是同一张 Graph 的一组配置实例，比如不同 Prompt、模型和 Tool；Thread 是保存对话或任务 State 的容器；Run 是一次执行，把某个 Assistant、输入和可选 Thread 组合起来。没有 Thread 的 Stateless Run 适合一次性任务，有 Thread 的 Run 才会沿用这条状态历史。
+
+> Agent Server 还提供持久化和任务队列，API Server 接请求，Queue Worker 执行 Graph、写 Checkpoint 并发布事件。这些是部署产品的能力，不是只安装 `langgraph` OSS 包就自动拥有。我仍要做身份映射、租户隔离、配额、版本路由和业务幂等，Assistant 配置也要和 Graph、Prompt、Tool Schema 一起审计。
+
+### Q194.【Agent Server 并发】同一个 Thread 同时来两条消息，`enqueue`、`reject`、`interrupt`、`rollback` 怎么选？
+
+**口语化回答：**
+
+> 同一条 Thread 的 State 不能让两个 Run 随便并发覆盖。官方 Server 给了不同 Double-texting 策略：`enqueue` 保留原 Run，把新 Run 排后面；`reject` 拒绝新请求；`interrupt` 中断原 Run，再处理新请求；`rollback` 还会把 Thread 恢复到原 Run 之前的状态后再跑新输入。具体参数和状态变化要按当前 Server 版本确认。
+
+> 普通聊天可以排队或中断，支付、发布这类有副作用的流程更适合拒绝或进入显式业务队列。即使选择 Rollback，已经发生的外部副作用也不会自动撤销；Cancel 也可能在当前调用返回后才生效。所以我会结合业务状态、幂等账本和补偿策略选，不把并发策略当数据库事务。
+
+### Q195.【LangChain MCP Adapter】`MultiServerMCPClient` 默认为什么是无状态的？什么时候要持久 Session？
+
+**口语化回答：**
+
+> 当前 `langchain-mcp-adapters` 里，`MultiServerMCPClient` 默认每次 Tool 调用新建一个 `ClientSession`，执行完就清理，服务端之间也不会自动共享状态。这样生命周期简单，适合无状态查询；如果某个 MCP Server 要跨多次调用保留会话能力、订阅或协商结果，我才用 `client.session(server_name)` 显式管理持久 Session，再从这个 Session 加载 Tool、Resource 或 Prompt。
+
+> 长 Session 要处理断线、重连、超时、服务升级和凭证刷新，而且不能跨用户复用。Stdio 子进程和 Streamable HTTP 的资源模型也不同，我会给每个 Server 做健康检查、并发上限和关闭流程。Session 连着不代表业务事务还有效，恢复后仍要重新核对远端状态。
+
+### Q196.【MCP Interceptor】怎样把用户身份和 Trace 传给 MCP Tool，又不泄露给模型？
+
+**口语化回答：**
+
+> LangChain MCP Adapter 的 Tool Interceptor 可以在真正调用 Server 前读取 `ToolRuntime` 的 State、Context 和 Store，注入授权 Header、租户、Trace ID，做限流、参数改写、结果过滤或错误转换。模型只看到业务 Tool Schema，不需要也不应该生成 Bearer Token、用户角色或内部 Header。
+
+> 但 Interceptor 不是唯一授权点。Host 先决定哪些 Tool 对这个用户可见，Interceptor 做调用前策略，MCP Server 还要再次做资源级鉴权和审计；凭证只短时获取，不写进 State、Prompt 和 Tool Result。多个 Interceptor 是洋葱式嵌套，我会固定顺序并测试认证、重试和日志不会重复或相互绕过。
+
+### Q197.【MCP 生产题】Server 的 Tool Schema 变化、重名或断线，Host 怎么处理？
+
+**口语化回答：**
+
+> 我不会把 `get_tools()` 的结果当永久真相。每个 Server 要有稳定身份和版本，Tool 用 Server Namespace 加名称做唯一键，保存 Schema Hash；发现名称冲突、必填参数变化或权限扩大时，先阻止自动上线，跑契约测试和审批。正在暂停的 Run 还要绑定原 Tool Schema 版本，不能恢复时直接拿新版参数猜。
+
+> 断线时区分传输失败、Session 失效和 Tool 返回业务错误，按幂等性决定重连、重试或失败；动态工具发现也要有最大数量、缓存 TTL 和 Allowlist。写 Tool 调用前后保存动作 ID 与状态，重连后先查远端结果。MCP 标准化的是协议，不会自动解决版本治理、工具冲突和 Exactly-once。
+
+### Q198.【现场排障】LangGraph 最常见的几类错误，你怎么快速定位？
+
+**口语化回答：**
+
+> `InvalidUpdateError` 我先查同一个 Super-step 是否有多个分支写了没有 Reducer 的同一字段；`GraphRecursionError` 查终止条件、路由和剩余步骤；启用 Checkpointer 后无法恢复，先查 `thread_id` 是否一致；Interrupt 反复出现，查 Node 是否从头重放、Interrupt 顺序是否变化；模型报消息非法，查 Tool Call ID 和对应 `ToolMessage` 是否成对。
+
+> Streaming 没 Token，我会看模型本身是否支持流、是否调用了流式入口、哪个中间 Runnable 阻塞了 Chunk，以及异步环境有没有正确传 Config。所有问题都从最小复现、Graph 版本、Trace、Checkpoint State 和实际路由开始，不先靠多重 Retry 掩盖。修复后加一条能稳定复现原错误的回归测试。
+
+### Q199.【Java 框架】Spring AI 的 `ChatClient`、Advisor、ToolCallback、VectorStore 和 MCP 怎么串？
+
+**口语化回答：**
+
+> `ChatClient` 是调用 Chat Model 的 Fluent API，支持同步和流式；Advisor 是请求前、响应后的可组合拦截链，可以做 Memory、RAG、Guardrail 和观测；ToolCallback 把 Java 方法或外部能力注册成模型 Tool；VectorStore 承接 Embedding 检索；MCP Starter 用来接或暴露标准化工具。对 Spring Boot 团队，这些抽象和依赖注入、配置、Micrometer、Security 比较容易接起来。
+
+> 我会特别注意 Advisor 顺序是栈式的，流式与非流式接口也不同；ToolCallingAdvisor 能跑工具循环，但不等于已经有 Durable Graph Runtime。流程只有少量调用时 Spring AI 很合适；需要复杂分支、Checkpoint、Interrupt 和跨进程恢复时，我会再评估 LangGraph、Temporal 或自己的状态机，而不是把所有控制流塞进 Advisor。
+
+### Q200.【Java 框架】LangChain4j 的 AI Services、Tools、ChatMemory 和 RAG 怎么理解？
+
+**口语化回答：**
+
+> LangChain4j 的 AI Services 很像 Spring Data 风格的接口代理：我定义 Java Interface、System Message 和返回类型，框架负责模型消息转换和结构化结果；再接 `@Tool` 方法、`ChatMemory`、Content Retriever、Embedding Store 和 RAG 组件。它也有 Spring Boot、Quarkus、MCP 和多模型集成，适合 Java 团队快速把模型能力放进服务层。
+
+> 我不会把它旧的 Chains 当当前主路线，官方已经标成 Legacy；ChatMemory 也是窗口和存储抽象，不是长期事实治理或工作流 Checkpoint。Spring AI 和 LangChain4j 我会用同一个任务比较模型支持、Tool Schema、Memory 隔离、RAG 可定制、Streaming、观测和升级成本。复杂 Durable Workflow 仍交给专门编排层，不能因为框架能循环 Tool 就说生产恢复已经解决。
+
 ---
 
 ## 八、推荐练习顺序
@@ -1538,6 +1762,8 @@ flowchart LR
 7. 用同一个“研究后发布”场景分别画 LangGraph、OpenAI Agents SDK、ADK、CrewAI Flow 和 Dify Workflow，比较状态真相、恢复点、HITL 与副作用边界。
 8. 手写一个最小 MCP Host/Client/Server 交互说明，能口述初始化、能力协商、工具调用、超时重试和 OAuth 安全；再说明它与 A2A 委派的分层关系。
 9. 对 Q97-Q172 每个框架或协议至少准备一个“不该选它”的场景，避免面试只会背优点。
+10. 对 Q173-Q188 做一次生产故障口述：任选一个请求，连续回答状态边界、并发、断线、重试、补偿、监控和恢复。
+11. 对 Q189-Q200 做一次框架迁移演练：把同一条 Java 或 Python Agent 流程分别映射到 Functional API、Agent Server、Spring AI 和 LangChain4j，并指出恢复与权限边界。
 
 ---
 
@@ -1581,6 +1807,26 @@ flowchart LR
 32. [LangSmith Manage Prompts](https://docs.langchain.com/langsmith/manage-prompts)
 33. [LangSmith Compare Experiment Results](https://docs.langchain.com/langsmith/compare-experiment-results)
 34. [LangChain Context Engineering](https://docs.langchain.com/oss/python/langchain/context-engineering)
+35. [LangChain Tools](https://docs.langchain.com/oss/python/langchain/tools)
+36. [LangGraph Runtime](https://docs.langchain.com/oss/python/langgraph/runtime)
+37. [LangGraph Test](https://docs.langchain.com/oss/python/langgraph/test)
+38. [LangGraph Use Graph API](https://docs.langchain.com/oss/python/langgraph/use-graph-api)
+39. [LangGraph Functional API](https://docs.langchain.com/oss/python/langgraph/functional-api)
+40. [LangGraph Use Functional API](https://docs.langchain.com/oss/python/langgraph/use-functional-api)
+41. [LangSmith Agent Server](https://docs.langchain.com/langsmith/agent-server)
+42. [LangSmith Assistants](https://docs.langchain.com/langsmith/assistants)
+43. [LangSmith Runs](https://docs.langchain.com/langsmith/runs)
+44. [LangSmith Configure Checkpointer](https://docs.langchain.com/langsmith/configure-checkpointer)
+45. [LangChain MCP Adapter](https://docs.langchain.com/oss/python/langchain/mcp)
+46. [Spring AI Reference](https://docs.spring.io/spring-ai/reference/)
+47. [Spring AI ChatClient](https://docs.spring.io/spring-ai/reference/api/chatclient.html)
+48. [Spring AI Advisors](https://docs.spring.io/spring-ai/reference/api/advisors.html)
+49. [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)
+50. [LangChain4j Overview](https://docs.langchain4j.dev/intro/)
+51. [LangChain4j AI Services](https://docs.langchain4j.dev/tutorials/ai-services/)
+52. [LangChain4j Tools](https://docs.langchain4j.dev/tutorials/tools/)
+53. [LangChain4j Chat Memory](https://docs.langchain4j.dev/tutorials/chat-memory/)
+54. [LangChain4j RAG](https://docs.langchain4j.dev/tutorials/rag/)
 
 #### 其他框架
 
@@ -1655,7 +1901,7 @@ flowchart LR
 
 > 公开题库里仍混有 `LLMChain`、旧 Memory、`create_react_agent` 和旧 Streaming API。本文只借用其题目主题，答案已经按官方当前文档重新校正。
 >
-> 联网核查结论：Interview Coder 的 2026 题单确实集中在 Runnable/LCEL、Prompt、Structured Output、Memory、RAG、Tool、State/Reducer、Checkpoint、HITL、Streaming 和生产排障，但其中仍有 `MessageGraph`、`create_react_agent` 等旧入口；Index.dev 的题面覆盖 Hybrid RAG、Loader/Splitter、缓存、PII、多模型和系统设计，但答案里能看到旧包路径、`AgentExecutor` 以及模板化的 STAR 指标。GitHub 社区题库适合扩充追问，不足以证明真实面试频率。这里不复用任何公开题库里的“上线规模、准确率、降本比例、事故恢复时间”等数字。
+> 联网核查结论：Interview Coder 的 2026 题单确实集中在 Runnable/LCEL、Prompt、Structured Output、Memory、RAG、Tool、State/Reducer、Checkpoint、HITL、Streaming 和生产排障，但其中仍有 `MessageGraph`、`create_react_agent` 等旧入口；Index.dev 的题面覆盖 Hybrid RAG、Loader/Splitter、缓存、PII、多模型和系统设计，但答案里能看到旧包路径、`AgentExecutor` 以及模板化的 STAR 指标。GitHub 的 250 题社区清单还集中追问编译、State 类型、动态并发、故障收口、监控和测试，因此本轮把这些去重后补成 Q173-Q188；社区题库仍不足以证明真实面试频率。这里不复用任何公开题库里的“上线规模、准确率、降本比例、事故恢复时间”等数字。
 
 ### 9.3 你的真实面试来源
 
