@@ -50,6 +50,8 @@ flowchart TB
 | “Checkpoint 保证 Exactly-once” | 错。外部副作用仍需幂等键、唯一约束、事务或 Outbox |
 | “Recursion limit 默认 25” | 旧资料。官方当前文档说明从 1.0.6 起默认 1000；生产仍应显式设业务上限 |
 | “Streaming 只有 values/updates” | 旧 `stream_mode` 仍可用；当前新项目优先事件流 `version="v3"` 的独立投影 |
+| “MCP 远程传输就是旧 HTTP+SSE” | 旧 HTTP+SSE 已被 Streamable HTTP 替代；当前还要讲 Origin 校验、Session、事件恢复和 OAuth 2.1 |
+| “A2A 只有 JSON-RPC，Task 只能轮询” | A2A 1.0 的规范源是 Protobuf，公开了 JSON-RPC、REST、gRPC Binding，并支持 Stream、Subscribe 和 Push |
 
 ---
 
@@ -1203,6 +1205,78 @@ flowchart LR
 
 > 还要防 SSRF、跨租户数据泄漏、任务重放、恶意 Artifact 和无限委派。给每次委派设置 Scope、Deadline、预算和最大层级，记录完整委派链；高风险动作仍由本地策略和人审批。A2A 解决互操作，不保证远端 Agent 正确、诚实或安全。
 
+### Q134.【版本题】MCP 2025-11-25 相比旧资料，最值得面试准备的变化是什么？
+
+**口语化回答：**
+
+> 我会先说版本口径：当前稳定规范页面是 `2025-11-25`。这版加入了实验性的 Tasks，让长请求可以返回任务再轮询或延迟取结果；Elicitation 增加 URL 模式；Sampling 可以带 Tool；授权侧强化了 Client ID Metadata、Protected Resource Metadata 和 Resource Indicator；Schema 默认口径也更新到 JSON Schema 2020-12。
+
+> 但我不会把“规范有了”说成“所有 SDK 和 Client 都已经支持”。初始化时仍要做 Capability Negotiation，记录 Client、Server 和协议版本，并为缺少新能力的实现保留降级路径。尤其 Tasks 目前明确是 Experimental，接口和行为还可能变化。
+
+### Q135.【MCP Tasks】Tasks 解决什么？`tasks/get`、`tasks/result` 和 `tasks/cancel` 怎么配合？
+
+**口语化回答：**
+
+> Tasks 解决的是一次 Tool、Sampling 或 Elicitation 请求无法在当前连接内快速完成的问题。接收方先返回 Task ID 和状态；调用方用 `tasks/get` 看状态并尊重 `pollInterval`，完成后从 `tasks/result` 取回与原请求类型匹配的结果，支持时可以用 `tasks/cancel` 请求取消。TTL 管的是任务资源保留，不是业务结果的永久保存时间。
+
+> 可靠性上我不会只保存一个 Task ID。还要保存租户、Server、原请求哈希、业务幂等键和创建时间；断线后先查状态再决定是否重建。通知是可选的，不能因为收到了几次通知就停止状态核对；Cancel 也只是请求，外部副作用是否已经发生仍要靠业务状态和幂等记录确认。
+
+### Q136.【MCP 工具发现】什么是 Progressive Tool Discovery？为什么不能把所有 Tool 都塞给模型？
+
+**口语化回答：**
+
+> MCP Host 连接很多 Server 后，如果每轮都把几百个 Tool 的完整 Schema 塞进上下文，会浪费 Token、破坏 Prompt Cache，还会让相似工具互相干扰。Progressive Discovery 的做法是 Host 先维护 Tool Catalog，只给模型一个轻量搜索入口；模型找到候选后再 Inspect 单个 Tool 的完整 Schema，最后才执行。
+
+> 我会按权限先过滤 Catalog，再按任务和 Server Namespace 搜索，不能让模型通过发现接口看到无权使用的 Tool。Schema 可以在 Host 侧缓存，但 Server 发出 `notifications/tools/list_changed` 后要刷新索引；新定义加入上下文时还要考虑 Provider 的前缀缓存，不能为了省 Schema Token 反而造成更大的 Cache Miss。
+
+### Q137.【MCP 演进】Tool Schema 在任务执行中变化了，旧任务还能直接恢复吗？
+
+**口语化回答：**
+
+> 不能默认可以。`list_changed` 只告诉 Host 列表变化，不保证同名 Tool 的参数和语义向后兼容。我会给每次调用记录 Server 身份、Tool 稳定 ID、协议版本和 Schema Hash；恢复前重新检查兼容性。新增可选字段通常容易兼容，删除字段、改类型或改变副作用语义就要阻断并重新规划。
+
+> 对高风险写 Tool，我还会固定允许版本或要求重新审批。否则用户批准的是旧参数，恢复时却按新语义执行，这属于授权对象发生变化。Tool Registry 需要版本、健康状态、灰度和回滚，不能把 MCP 的动态发现误解成“永远调用最新版本”。
+
+### Q138.【MCP OAuth】远程 MCP 为什么要讲 OAuth 2.1、Audience 和 Resource Indicator？
+
+**口语化回答：**
+
+> 远程 MCP Server 是 Resource Server，Client 代表用户申请 Token。当前规范要求通过 Protected Resource Metadata 发现授权服务，Client 在授权和换 Token 时带 Resource Indicator，Server 再校验 Token 的 Issuer、Audience、Scope、过期时间和签名。PKCE、State、HTTPS 和安全的 Redirect URI 也是授权码流程的基本要求。
+
+> 关键点是 Token 必须绑定目标资源，不能把上游 Token 原样透传给另一个服务。Gateway 也不能因为自己拿到了高权限 Token，就替低权限用户调用越权能力；每次 Tool Call 仍要绑定真实用户、租户、资源和最小 Scope。OAuth 解决“谁被授权访问什么”，不会替业务服务判断订单是否允许退款。
+
+### Q139.【MCP Apps】`ui://` Resource 和普通 Tool Result 有什么区别？安全边界在哪？
+
+**口语化回答：**
+
+> MCP Apps 允许 Tool 通过 `_meta.ui.resourceUri` 指向一个 `ui://` Resource，Host 取回 HTML 后在受控界面里渲染。App 和 Host 通过基于 `postMessage` 的 JSON-RPC 通道交互，可以展示 Tool 输入输出，也可以经 Host 代理再调用允许的 Tool。它解决的是交互界面，不是把第三方页面直接嵌进主应用。
+
+> Host 必须使用 Sandbox Iframe、严格 CSP、Origin 和消息来源校验，只开放明确的 Tool、链接、相机或麦克风能力。App 里的按钮不能绕过用户身份和业务鉴权；高风险动作仍应重新确认或 Step-up Authorization。即使页面来自已连接的 MCP Server，也要按不可信第三方代码处理。
+
+### Q140.【A2A 1.0】JSON-RPC、REST 和 gRPC 三种 Binding 怎么兼容？
+
+**口语化回答：**
+
+> A2A 1.0 的规范事实源是 Protobuf，Agent Card 的 `supported_interfaces` 会声明 URL、协议 Binding 和 `protocol_version`，当前可以是 JSON-RPC、HTTP/REST 或 gRPC。它们承载的是同一组 Task、Message、Artifact 和事件语义，不应该各自发明一套业务状态。
+
+> Client 先按 Agent Card 和自身能力选共同 Binding，再做契约测试，不能只看到 URL 就假设是 JSON-RPC。跨语言系统我会用规范测试覆盖字段映射、枚举、流式事件、错误码和取消；协议版本不兼容时明确拒绝或走受测的降级版本，不靠“字段差不多”硬解析。
+
+### Q141.【A2A 长任务】`context_id`、`task_id`、List 和 Subscribe 分别解决什么？
+
+**口语化回答：**
+
+> `context_id` 表示一段相关交互上下文，同一个上下文里可以产生多个 Task；`task_id` 只标识其中一个具体工作单元。`ListTasks` 用于按条件分页找历史任务，`GetTask` 看当前状态，`SubscribeToTask` 让断开后重新订阅已有任务，`SendStreamingMessage` 则是发起或继续消息时直接接收流式事件。
+
+> 我会把本地业务 ID、远端 Agent、Context 和 Task 四者都持久化。重连先查旧 Task，不盲目再发一个；流里用事件身份或状态版本去重，Artifact 的 Append 与 Last Chunk 也要按协议合并。Task 进入 `INPUT_REQUIRED` 或 `AUTH_REQUIRED` 时是暂停等输入，不应该当成失败自动重试。
+
+### Q142.【A2A 安全】Extended Agent Card 和 Push Notification 为什么要单独防护？
+
+**口语化回答：**
+
+> 公开 Agent Card 适合放基础发现信息，认证后的 `GetExtendedAgentCard` 才适合返回更详细的能力和接口；但认证后拿到也不等于永久可信，仍要校验组织身份、版本和缓存有效期。这样能减少把内部 Skill、Endpoint 和安全要求全部公开出去的风险。
+
+> Push Notification 本质是远端 Agent 回调我的 Webhook。我会用 HTTPS、签名或 mTLS、Timestamp、Nonce、Task ID 和事件 ID 防伪造与重放，先持久化去重再处理；回调 URL 要经过 Allowlist 和 SSRF 防护。Webhook 只提示“状态可能变化”，关键业务仍应主动 `GetTask` 核对，不能收到一个 completed 字符串就直接执行本地副作用。
+
 ---
 
 ## 八、推荐练习顺序
@@ -1215,7 +1289,7 @@ flowchart LR
 6. 用 CodeWiki 流程完成一次白板映射，但开场必须先说明“这是重构映射，不是当前生产实现”。
 7. 用同一个“研究后发布”场景分别画 LangGraph、OpenAI Agents SDK、ADK、CrewAI Flow 和 Dify Workflow，比较状态真相、恢复点、HITL 与副作用边界。
 8. 手写一个最小 MCP Host/Client/Server 交互说明，能口述初始化、能力协商、工具调用、超时重试和 OAuth 安全；再说明它与 A2A 委派的分层关系。
-9. 对 Q97-Q133 每个框架至少准备一个“不该选它”的场景，避免面试只会背优点。
+9. 对 Q97-Q142 每个框架或协议至少准备一个“不该选它”的场景，避免面试只会背优点。
 
 ---
 
@@ -1306,6 +1380,14 @@ flowchart LR
 43. [MCP Security Best Practices](https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices)
 44. [A2A Protocol Documentation](https://a2a-protocol.org/latest/)
 45. [A2A Official Repository](https://github.com/a2aproject/A2A)
+46. [MCP 2025-11-25 Changelog](https://modelcontextprotocol.io/specification/2025-11-25/changelog)
+47. [MCP Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
+48. [MCP Streamable HTTP Transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+49. [MCP Tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+50. [MCP Client Best Practices](https://modelcontextprotocol.io/docs/develop/clients/client-best-practices)
+51. [MCP Security Best Practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices)
+52. [MCP Apps Overview](https://modelcontextprotocol.io/extensions/apps/overview)
+53. [A2A 1.0 Official LLM Index](https://a2a-protocol.org/llms.txt)
 
 ### 9.2 公开题库：只用于判断常见题型
 

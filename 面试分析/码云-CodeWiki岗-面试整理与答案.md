@@ -65,27 +65,20 @@
 ### Q5. 项目有没有了解 LangGraph 这类框架？自己有用过吗？
 
 **参考答案**（如实 + 体现认知）：
-> LangGraph 我了解它的设计思想——**把 agent workflow 建模成显式的状态图（state graph）**，节点是计算单元（可以是 LLM 调用、工具调用、纯逻辑），边是状态转移，支持条件路由、循环、checkpointer 持久化。它比纯 LangChain 的 chain 更可控，适合多步骤、有分支和回环的 agent。
+> LangGraph 我了解过，它的核心思路是把 Agent 工作流建模成显式的状态图：节点做 LLM 调用、工具调用或普通逻辑，边负责条件路由和回环。如果配了 checkpointer，它还能把每一步的 State 按 thread 保存下来，用于中断恢复和人工审批。
 >
-> 我自己项目里**没有直接用 LangGraph**（如实说）。CodeWiki 的 Wiki Agent workflow 是自己实现的一套工具链：plan → evidence → save → validate，本质也是一个有状态的多步流程，但我们用更轻的显式状态机 + 服务端校验实现，没有引入 LangGraph 的图抽象依赖。
+> 但我得先把当前实现说清楚：**CodeWiki 现在没有使用 LangGraph**，也没有自己造一套等价的 durable graph runtime。Wiki 生成现在是由 service 按顺序编排一组可组合工具：先规划目录，再为页面取证，然后生成、校验和保存。这是 service orchestration，不是 LangGraph 那种带 State、reducer 和 checkpoint 的持久化图执行。
 >
-> 如果要选，LangGraph 适合**复杂多分支、需要中断恢复、需要人审批节点**的 agent 场景；CodeWiki 的流程相对线性（生成→校验→修复），用轻量状态机够用。这是我没用它的原因，不是不认可它。
+> 当前流程分支不多，这种实现成本更低。如果下一版要加长时间任务、人工审批、多分支回退和断点恢复，我才会考虑把它改造成 LangGraph。所以我会说我懂它的适用边界，但不会把“了解过”说成“项目里已经用过”。
 
 ### Q6. 项目中（如果用了）图的状态是怎么设计的？
 
-**参考答案**（以 CodeWiki 的实际状态设计回答，因为你没用 LangGraph，转讲自己的状态设计）：
-> 我没用 LangGraph，但 CodeWiki 的 Wiki Agent workflow 也有显式状态设计，可以类比讲：
+**参考答案**（先说当前实现，再说改造方案）：
+> 这题我会先纠正一个前提：我的项目当前没有 LangGraph 的图状态。一次 Wiki 生成请求里确实会传 `repo_id`、catalog、page spec、evidence、allowed source refs、validation errors 和 retry count，但这些是 service 调用和工具之间的运行时数据，不是一个由 checkpointer 管理的 durable State。
 >
-> 状态核心字段：
-> - **任务上下文**：repo_id、当前生成的 catalog（目录结构）、已完成的 page slugs。
-> - **当前阶段**：plan / evidence / generate / validate / repair / done。
-> - **证据集**：每页生成时检索到的 source chunks、graph nodes、graph edges、community summaries——这些是 allowed source refs 的来源。
-> - **校验状态**：validation_errors、retry_count（最多 3 次修复）。
-> - **持久化产物**：doc_page 表里的 status（draft / generated / stale）。
+> `doc_page` 里的页面内容和 status 是**业务输出**，它不是 checkpoint。它不保存“当前正在哪个节点”、reducer 合并结果、待执行分支或 resume cursor。所以我不会说当前已经做到了“进程重启后从精确节点继续”；现有产物最多可以帮助我们幂等地重跑或跳过已有输出，两者不是一回事。
 >
-> 状态转移：plan 成功 → 逐页 evidence（取上下文）→ generate（LLM 生成 JSON）→ validate（Markdown/citation/diagram 校验）→ 失败进 repair（把 errors 回灌）→ 成功 save_page。状态都落库，中断后能从某页继续，不用从头来。
->
-> 如果用 LangGraph 重新实现，这套状态就是 `State` 对象，阶段就是节点，validate→repair 就是条件回环边。
+> 如果下一版用 LangGraph 改造，我会再定义一个明确的 `State`，放任务标识、页面队列、当前页、证据引用、校验错误、重试次数和人工审批结果；把 plan、evidence、generate、validate、repair 和 save 拆成节点，再用 checkpointer 按 thread 持久化每步状态。到那时我才能说支持断点恢复，并且还要配合节点幂等和工具副作用去重，不是加个 checkpointer 就万事大吉。
 
 ---
 
@@ -97,7 +90,7 @@
 > CodeWiki 是一个**本地优先的代码智能平台**，核心思想是：**先用确定性程序把仓库变成结构化事实，再让 LLM 做组织和表达，LLM 输出被源码引用硬约束住**。架构分七层：
 >
 > 1. **仓库接入层**：`RepoScanner` 支持本地路径和 Git URL，给每个文件打语言、sha256、mtime、git commit time，为增量更新提供稳定事实。
-> 2. **AST 结构化层**：`AstParser` 基于 tree-sitter，多语言（Python/Java/Go/Rust/C/C++/C#/TS/JS）统一产出到 `AstSymbol`（type/name/signature/imports/calls/references/bases/implements/decorators）。
+> 2. **AST 结构化层**：Python 走标准库 `ast`，其他语言走 tree-sitter；我自研的 parser registry、capture specs 和语言 augmenter 把不同解析结果统一成 `AstSymbol`。跨文件的 calls/references 是带边界的启发式关系，不冒充编译器或 LSP 级精度。
 > 3. **Code Graph 层**：`GraphBuilder` 把类/函数/方法/endpoint/schema 变成节点，contains/defines/imports/calls/references/inherits 等变成边，每条边带 confidence 和 provenance（区分确定性结构边和启发式推断边）。
 > 4. **社区检测层**：`CommunityDetector` 用 Louvain/Leiden 做模块度分区，生成 level 0/1/2 层级社区，`CommunityNamer` 用 LLM 给社区起名和摘要。
 > 5. **GraphRAG 检索层**：先符号搜索找 seed → 合并 FTS/vector 命中 chunk → 沿图扩展 → 选 source chunks + 图边 + 社区摘要组成 context pack，受 token budget 约束。
@@ -207,33 +200,23 @@
 
 ### Q15. AST 解析我看是自研的，讲一讲这个自研的 AST 解析引擎
 
-**参考答案**（基于真实实现：tree-sitter + capture_engine + 每语言 augmenter/spec）：
-> 说"自研"更准确是**基于 tree-sitter 之上自研了一套统一捕获层**，不是从零写解析器。架构分几层：
+**参考答案**（把开源解析能力和自研层分开说）：
+> 这里我一般不会笼统地说“AST 解析器全是我自研的”，那不准确。**Python 用的是标准库 `ast`，其他语言主要用 tree-sitter 产生 CST**。底层语法解析能力是现成的，我自研的是它们上面那层多语言统一引擎。
 >
-> 1. **底层解析器**：用 tree-sitter 的 `Language/Parser/Query`，支持 Python/Java/Go/Rust/C/C++/C#/TypeScript/TSX/JavaScript/JSX。tree-sitter 负责把源码解析成 CST（具体语法树）。
-> 2. **capture_engine（自研核心）**：`TreeSitterCaptureParser` 不直接遍历 CST，而是用**统一的语义 capture name** 驱动查询。每种语言有一个 `capture_spec`（定义该语言的 tree-sitter query + capture name 映射），parser 跑 query 拿到 capture，再 `records_from_capture_query` 转成 `DefinitionRecord`。
-> 3. **统一产物 AstSymbol**：所有语言的捕获结果归一化到同一个 `AstSymbol` 结构——`type/name/file_path/start_line/end_line/signature/docstring/imports/calls/references/bases/implements/decorators`。这样下游 GraphBuilder 不用关心是 Python 还是 Java。
-> 4. **augmenter（语言增强）**：每语言一个 augmenter（python.java.go.rust.c.cpp.csharp.ecma），处理语言特有的补充信息，比如 Python 的装饰器、Java 的 implements、JS 的 export 模式。
-> 5. **normalization**：`signature_text` 把不同语言的签名归一化成可比较的文本。
-> 6. **并发 + 容错**：`parse_scanned_files` 用 ThreadPoolExecutor（默认 `min(file_count, cpu_count, 4)`），每个 worker fork parser 避免状态冲突；捕获 `SyntaxError` 记录到 `parse_errors` 继续跑，不让一个坏文件挂掉整个仓库。
+> 这层里首先有一个 parser registry，根据语言选标准库 `ast` 路径还是 tree-sitter 路径。对 tree-sitter 语言，capture specs 负责用各语言的 query 找类、函数、方法、导入等我们关心的结构；augmenter 再补充装饰器、implements、export 这类语言特有信息。最后统一归一成 `AstSymbol`，让 GraphBuilder 不需要知道上游用了哪个 parser。
 >
-> 为什么这么设计：**统一性比单语言精确性重要**。我们要的是"所有语言的调用关系、引用、继承都能落到同一张图上"，而不是每种语言都做语言服务器级精确推导。代价是跨文件解析是启发式 + 置信度标注的，不是 100% 精确，但够用。
+> 这个方案的价值是“统一”，但我也会主动说清它的精度边界。类、函数、包含和显式导入这类语法结构相对确定；跨文件的 `calls` 和 `references` 有一部分是基于名称、导入和上下文做的启发式连边。遇到动态派发、反射、重载和需要完整类型推导的场景，它不可能像编译器或 LSP 一样精确。我会用 confidence 和 provenance 区分确定事实与推断关系，而不是把所有边都当成硬事实。
 
 ### Q16. 里边的变量、函数、全局变量、class 类这些，是在 AST 里存还是在数据库里存？
 
 **参考答案**：
-> **两层都存，职责不同**：
+> 我会先直接回答：**原始 AST/CST 不会整棵存进数据库**。Python `ast` 节点和 tree-sitter CST 都是解析期的瞬时结构，用完就释放。我们先从里面挑选对代码理解有价值的信息，归一成 `AstSymbol`，再交给图构建和切块流程。
 >
-> 1. **AST 层（瞬时产物）**：解析时产生 `AstSymbol` 列表，包含函数、方法、类、变量等的定义信息（name/signature/行范围/imports/calls/...）。这是解析的中间产物，不直接持久化原始 AST。
-> 2. **数据库层（持久化）**：`GraphBuilder` 把 AstSymbol 转成图节点存库。具体：
->    - **节点表 `code_node`**：存 file/config/class/function/method/endpoint/schema 等节点，每个节点有 type、name、file_path、start_line/end_line、signature、docstring 等。
->    - **边表 `code_edge`**：存 contains/defines/imports/exports/inherits/implements/calls/references/routes_to/uses_config，每条边带 confidence、is_inferred、reason、provenance。
->    - **chunk 表 `code_chunk`**：源码片段（按符号或固定大小切），带 FTS 和可选 embedding。
->    - **AST 缓存**：`ast_cache` + `source_file_cache` 会缓存解析结果，增量更新时 unchanged 文件直接复用，不重解析。
+> 真正持久化的是经过筛选和归一化的产物：比如 file、class、function、method、endpoint 这类节点，contains、imports、inherits、calls、references 这类边，用于检索的 code chunks，以及增量扫描需要的解析缓存。这个缓存也是精选后的规范化结果，不等于把完整语法树序列化进库。
 >
-> 关于"全局变量"：全局变量这种没有显式 def 节点的，通过 capture 里的 reference/assignment 捕获，作为 reference 边或 file-level symbol 存，不单独建一类节点（避免图膨胀）。**类的成员变量**归到 class 节点下，**局部变量**不持久化（作用域太局部，对代码理解价值低）。
+> 变量要单独说边界：我们不会声称“每个全局变量、成员变量和局部变量都能捕获并落库”。不同语言的 capture 覆盖范围不一样，当前优先保留类、函数、方法和与架构检索有关的符号；普通局部变量通常不单独建图节点，某个 assignment 能否成为符号或关系要看对应语言的 spec 和 augmenter。
 >
-> 一句话：**AST 是解析期的中间结构，数据库存的是从 AST 提炼出的图节点/边/chunk，是持久化产物**。
+> 所以一句话总结就是：**语法树负责解析，`AstSymbol` 负责归一，数据库只存下游真正需要的节点、边、chunk 和缓存**。
 
 ### Q17. 为什么会选择 GraphRAG？
 
@@ -378,7 +361,7 @@
 >
 > 1. **vibe coding 是放大器，不是自动驾驶**：对懂的人 10x 提效，对不懂的人埋雷。前提是你能 review 得动产出——能看出架构问题、边界遗漏、并发坑。不能盲信。
 > 2. **边界清晰的任务交给它**：CRUD、模式化代码、测试骨架、前端组件——边界清楚、可验证、错了能跑测试发现。架构决策、核心校验逻辑、并发/增量正确性——自己设计。
-> 3. **上下文给够**：vibe coding 失败 80% 是上下文没给够。把相关文件、约束、示例、要避免的坑都喂进去，产出质量天差地别。
+> 3. **上下文给够**：很多 vibe coding 失败不是模型不会写，而是没有给够相关文件、约束、示例和要避免的坑。把上下文边界定义清楚，产出质量会明显不同；具体比例要靠自己的任务统计，不能直接背一个百分数。
 > 4. **小步快跑 + 频繁验证**：不要让 agent 一次写一大坨，写一点跑测试、review、再继续。一次产出越多，错误越隐蔽。
 > 5. **风险意识**：Claude Code 被爆过后门风险，公司虽没禁用但要警惕——敏感代码/数据不要轻易喂，私有仓库注意隔离。Codex / OpenCloud / 国内 Cursor 平替看个人喜好，没有绝对优劣。
 > 6. **它改变的是写代码的粒度**：从"写一行"变成"描述一个意图 + review 一段"。工程师的价值从"打字"转向"架构 + 评审 + 边界定义"。
@@ -414,7 +397,7 @@
 - CodeWiki 架构讲得清楚（七层 + graph 中心）。
 - 向量库选型有理有据（跟随主存储、向量可选、本地优先）。
 - 向量库更新删除讲到了主键对齐这个关键点。
-- AST 自研引擎能讲到 tree-sitter + capture_engine + 统一 AstSymbol。
+- AST 统一层能讲清 Python 标准库 `ast`、其他语言 tree-sitter，以及 parser registry / capture specs / augmenter 如何归一成 `AstSymbol`；同时主动交代跨文件关系是启发式的。
 - agent 记忆系统能讲清四层和四动作更新；要避免把置信度、候选区和晋升机制说成现状。
 
 ### 下来要补的：

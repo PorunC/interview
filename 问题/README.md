@@ -1,6 +1,6 @@
 # 面试问题资料索引
 
-本目录以简历上的三个公司内部项目为主线，并补充 AI 框架、Java 后端、算法现场编码和公司内部 Pi Coding Agent 源码研究。所有回答默认采用第一人称、口语化表达；项目事实以当前简历、内部详设和对应项目源码为准，不根据源码日期、仓库地址或提交历史判断项目归属。
+本目录以简历上的三个公司内部项目为主线，并补充 AI 框架、Java 后端、Python/FastAPI、算法现场编码和公司内部 Pi Coding Agent 源码研究。所有回答默认采用第一人称、口语化表达；项目事实以当前简历、内部详设和对应项目源码为准，不根据源码日期、仓库地址或提交历史判断项目归属。
 
 ## 建议使用顺序
 
@@ -14,11 +14,12 @@
 | CodeWiki 专项 | [CodeWiki 全链路源码级深入分析](./02-CodeWiki/CodeWiki-全链路源码级深入分析.md) | 重点准备多语言 AST、置信代码图、GraphRAG、Wiki 引用校验、增量更新和 Lite/MCP |
 | Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 重点准备长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯和生产边界 |
 | Agent 基础补课 | [AI Agent 通用面试题](./04-AI-Agent通用/AI-Agent-通用面试题.md) | 查缺补漏，不建议从头背完整本 |
-| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 重点准备当前 API、状态与恢复、框架选型、版本陷阱及项目映射 |
+| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 164 道联网校准口语题，覆盖当前 API、状态恢复、框架选型、MCP/A2A 版本陷阱及项目映射 |
 | 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练英文表达 |
 | Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./06-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
 | Java 后端 | [Java 后端高频面试题](./07-Java后端/Java后端高频面试题.md) | 120 道口语题，补齐 Java/JUC/JVM/Spring/MySQL/Redis/MQ/分布式和故障排查 |
 | 算法与现场编码 | [算法与现场编码高频题](./08-算法与现场编码/算法与现场编码高频题.md) | 100 道口语题，按思路、不变量、复杂度和易错点练习算法、并发与后端现场设计 |
+| Python 与 FastAPI | [Python 与 FastAPI 高频面试题](./09-Python与FastAPI/Python与FastAPI高频面试题.md) | 120 道口语题，覆盖 Python 对象与异步、ASGI/FastAPI、Pydantic、SQLAlchemy、测试、观测、安全和部署 |
 
 ## 项目与事实来源
 
@@ -50,6 +51,7 @@
 - `06-Pi`：公司内部引入的 Coding Agent 源码研究与改造评估，不冒充上游全部实现。
 - `07-Java后端`：针对真实 Java 面试暴露项和后端岗位的系统化口语题。
 - `08-算法与现场编码`：针对后续 Coding Round 的算法、并发和 AI/后端现场编码训练，不冒充已经被问过的原题。
+- `09-Python与FastAPI`：针对简历 Python/FastAPI 技术栈的语言、Web、数据库、测试与生产工程专项，答案连接 CodeWiki 但不反向虚构项目能力。
 - `90-补充与历史题库`：保留早期题目、真实面试来源和不同组织方式，只作为补充检索，不作为项目事实的最终口径。
 
 ## 统一回答规则

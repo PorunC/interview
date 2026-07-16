@@ -604,11 +604,11 @@ GPT/Claude/Llama 基本都用 BPE 变体。BPE 原始提出 Philip Gage 1994（�
 | 对话 | 0.6-0.8 | 自然流畅 |
 | 创意写作 | 0.8-1.2 | 多样性 |
 
-**API 取值范围**：OpenAI 0-2、Anthropic 0-1、Google 0-2，默认 1。T=0 也未必完全确定——GPU 浮点并行运算有舍入误差，不同硬件/batch 可能微小差异，真正确定需固定随机种子+deterministic 模式。
+**口语化回答**：我会把 Temperature 解释成采样分布的“锐度”，但不会把 `T=0` 说成端到端绝对确定。即使走贪心或近似贪心，托管 API 仍可能因为模型快照、服务端路由、批处理、浮点内核和工具返回变化而得到不同结果。固定 Seed、模型版本和所谓 Deterministic 模式只能尽量降低波动，不是跨时间、跨硬件的强保证。真要做可复现实验，我会同时固定 Prompt、Tool Schema、检索快照和所有参数，记录 Provider 与模型版本，并用重复运行和统计结果验证，而不是只跑一次就下结论。各 Provider 的参数范围和支持项也要按当前接口核对，不能把一家的范围套给所有模型。
 
 **与 Top-K/Top-P 的配合**：Temperature 调整体整体分布锐度，Top-K/Top-P 截断候选集。生产常组合：先 Top-P=0.9 截断再 T=0.7 调锐度。Agent 工具调用：T=0 + Top-P=1（最确定）。OpenAI 官方建议" altering this or top_p but not both"——二者都缩放分布同时调易互相干扰。
 
-**推理模型影响**：o1/R1 的"思考"阶段温度通常设 0 或低温保证 CoT 推理稳定，最终回答可适度升温。
+**推理模型影响**：推理模型不一定开放 Temperature，有些 Provider 会自己管理推理阶段的采样。面试时我会先看当前模型支持的是 Temperature、Reasoning Effort 还是 Token Budget，再做评测；也不会把隐藏 CoT 当成可审计日志，真正能审计的是输入、工具事件、可见输出和服务端记录的运行元数据。
 
 **易追问点**：Temperature vs Top-P？答：temperature 整体缩放 logits（改变分布"胖瘦"）；top-p 在分布上截断尾部（改变候选集"长短"）。前者连续影响所有 token 概率，后者离散丢弃低概率 token。
 
@@ -1852,15 +1852,15 @@ RRF（Reciprocal Rank Fusion）是 LangChain/LlamaIndex 混合检索默认策略
 
 **效果评估**：需 RAGAS 等框架量化（Faithfulness/Answer Relevancy/Context Precision/Recall），离线 eval≠在线效果，需配合用户反馈 A/B。
 
-**生产级 RAG 的进阶组件**：查询路由（按问题类型路由不同知识库）、多路召回+Rerank、上下文管理（长上下文压缩/引用标注/可溯源）、增量更新与版本（文档版本化/embedding 迁移）、护栏（拒答机制/PII 过滤）。
+**生产级 RAG 的进阶组件**：查询路由（按问题类型路由不同知识库）、多路召回+Rerank、上下文管理（长上下文压缩/引用标注/可溯源）、增量更新与版本（文档版本化/Embedding 迁移）、护栏（拒答机制/PII 过滤）。多租户场景必须在召回前做 ACL 过滤，不能先跨租户召回再让模型“不要泄露”。
 
-**安全**：防 indirect prompt injection（检索内容里的伪装指令）——防御性 prompt、分隔符包裹上下文、输出校验。
+**安全**：检索文档可能带间接 Prompt Injection，分隔符和防御性 Prompt 只能降低误遵循概率，不能构成安全边界。我会把检索内容标成不可信数据，限制 Agent 可见工具和出网能力，敏感工具重新鉴权，做来源与内容扫描，并对输出和副作用做服务端校验。
 
 **运维**：增量索引、版本化 embedding（换模型需重建索引）、缓存（query embedding+结果）、限流降级。
 
 **可观测**：trace 每步（query 改写/检索/重排/生成）延迟与分数，便于定位瓶颈。
 
-**易追问点**：换 embedding 模型怎么办？答：所有文档要重新 embed——这是迁移成本。选模型时要考虑长期维护。为每个文档记录摄取时间和版本，方便追踪哪些内容过期需更新。向量数据库支持增量更新（upsert）不需重建索引，但 embedding 模型换了必须全量重建。
+**易追问点**：换 Embedding 模型怎么办？我不会在原索引上直接覆盖。文档、Chunk、解析器、Embedding 模型和索引都带版本；新索引后台回填，迁移期间新增、更新和删除事件要同时传播到新旧版本。回填后用固定 Query 集做成对检索评测，再灰度或 Shadow Read，最后通过 Alias/Active Version 原子切换；指标变差可以立刻切回旧索引。切换稳定后再按保留策略回收旧版本。这样才能处理不停服迁移、删除传播和回滚，而不是一句“全量重建”带过。
 
 ## 6. 工具调用
 
@@ -3918,7 +3918,9 @@ Action: finish[答案]
 
 **机制**：async/await 通过协程在等待 IO 时让出执行权，使单线程也能并发处理多个任务。不适合直接解决 CPU 密集计算。
 
-**关键并发原语**：`create_task`（并发启动协程，必须先 create 再 await 才并发）、`gather`（等全部完成按序返回，并发调用多工具/多 LLM）、`as_completed`（谁先完成先处理，竞速/首字节优先）、`wait`（灵活控制 FIRST_COMPLETED 等，超时部分完成即继续）、`wait_for`（单协程超时，防 LLM 挂死）、`Semaphore`（限并发数防 rate limit）、`Lock`（跨 await 互斥保护共享状态）、`Queue`（协程间通信生产者-消费者）、`TaskGroup`（3.11+结构化并发替代 gather 更安全）、`to_thread`（3.9+同步函数扔线程池调用阻塞 SDK）。
+**关键并发原语**：`create_task`（并发启动协程）、`gather`（按输入顺序收集结果，但默认有一个异常抛给调用方时不会自动取消其他 Awaitable）、`as_completed`（谁先完成先处理）、`wait`（控制 `FIRST_COMPLETED` 等条件）、`wait_for`/`timeout`（超时边界）、`Semaphore`（限并发）、`Lock`（同一事件循环内互斥）、`Queue`（生产消费与背压）、`TaskGroup`（3.11+ 结构化并发）和 `to_thread`（隔离少量阻塞 IO）。这些原语只解决进程内协调，不会自动解决跨 Worker 的互斥、业务幂等和外部副作用。
+
+**TaskGroup 追问**：我会说清它的失败语义：子任务出现非取消异常时，会取消同组其他任务，退出上下文后把异常组合成 `ExceptionGroup` 抛出。清理代码必须让 `CancelledError` 正常传播，不能捕获后静默吞掉；如果确实要做部分成功，就要在任务边界把预期业务失败转换成显式结果，而不是依赖 TaskGroup 帮我猜策略。
 
 **并发 vs 并行**：并发（concurrency 同时管理多件事 asyncio 单线程轮流）；并行（parallelism 同时执行多件事 multiprocessing 多核真并行）。asyncio 提供 I/O 并发不提供 CPU 并行。
 
@@ -3932,7 +3934,7 @@ Action: finish[答案]
 
 **方法**：asyncio.gather 可并发执行多个独立 LLM 请求。生产中要配合超时、异常处理、限流和部分失败策略。
 
-**并发模式选型**：全部完成才继续→gather（任一失败即停用 gather 默认+抛异常，部分失败不影响用 `return_exceptions=True`）；谁先完成用谁→as_completed/wait(FIRST_COMPLETED)；结构化需严格异常处理→TaskGroup（3.11+推荐替代 gather）；需限流→Semaphore 包裹上述任意。
+**并发模式选型**：全部完成并按输入顺序收集结果可以用 `gather`；默认第一个异常会立即传播给等待方，但其他任务不会因此自动全部取消，部分失败可显式使用 `return_exceptions=True` 并逐项分类。需要“一个失败就取消兄弟任务”的结构化生命周期时用 `TaskGroup`，并处理 `ExceptionGroup`；谁先完成先处理用 `as_completed` 或 `wait(FIRST_COMPLETED)`；无论哪种模式，生产都要再叠加 Semaphore、总 Deadline 和取消后的资源清理。
 
 **成本优化**：稳定前缀评估 Prompt Caching，离线任务评估 Batch API，简单任务评估小模型路由；折扣和节省比例按 Provider 当前价格与自己的流量测算。
 
