@@ -19,7 +19,7 @@
 
 **参考思路**：30 秒～1 分钟，结构 = 身份 + 技术栈定位 + 两个核心项目一句话 + 求职意向。
 
-> 我主要做 AI 工程方向，过去一段时间独立/主导做了两个项目：一个是 **CodeWiki**，把代码仓库用 AST + GraphRAG 做成可追溯的代码知识库，给人和 Coding Agent 用；另一个是 **agent 长期记忆系统**，做了分层记忆（L0~L3）和上下文压缩。技术栈以 Python 为主，大模型侧用 LiteLLM 做多模型路由，存储用 SQLite/PostgreSQL + FTS + 向量检索。
+> 我主要做 AI 工程方向，两个有代表性的项目是 **CodeWiki** 和 **Agent Memory**；本人在两个项目是否主导、负责哪些阶段，按真实 RACI 与交付记录分别说明。CodeWiki 把代码仓库用 AST + GraphRAG 组织成可追溯知识；Agent Memory 做跨会话 L0~L3 和 Context Offload。技术栈以 Python 为主，大模型侧使用 LiteLLM 适配，存储涉及 SQLite/PostgreSQL、FTS 和可选向量检索。
 
 ### Q2. 聊一聊你理解的提示词工程
 
@@ -49,14 +49,16 @@
 >
 > **Loop / Loop Engineer**：这个概念是 OpenCloud / Anthropic 相关创始人提出来的，社区有解析但**没有准则级落地**。我的理解是：它强调的是**让 agent 任务形成闭环**——不是单轮 prompt-response，而是"执行→观察→反馈→修正→再执行"的循环，直到任务收敛或满足终止条件。Loop engineer 就是设计这个闭环的人：决定每一轮喂什么上下文、什么时候终止、失败怎么回退、怎么压缩历史。
 >
-> 诚实补充：你提到 Claude Code 里 loop 集成还比较浅——query 里一个 tool call，有 tool call 就继续、没有就结束——这个观察我认同，**目前的 loop 多是"tool call 驱动的隐式循环"，还没有特别深的显式闭环设计**。这个概念确实还在演进，没有标准答案，我下来会持续跟进。
+> 对具体产品我只描述公开文档、可观察行为或自己读过的代码版本，不根据界面体验断言 Claude Code、Codex 等闭源产品内部“只有一个简单 while loop”。更稳的表达是：Tool Call 循环只是 Harness 的最小骨架；真正的工程差异还在上下文组装、权限、并行工具顺序、重试、压缩、持久化、验证和终止策略。
 
 **关键点**：承认概念开放 + 给出自己的工程化解读 + 不硬套"开发周期"这种社会化框架。面试官已经明确说"大佬提个概念我们就学，最终不确定"，所以**展示你跟进了讨论但不下死定义**比硬答强。
 
 ### Q4. （追问）loop 在 Claude Code 里应该还没集成吧？代码核心是 query 里 tool call，有就 call，结束就结束
 
 **参考答案**：
-> 对，我认同。Claude Code 的主循环本质是 `while has_tool_call: execute_tool → feed_back → query_again`，loop 的概念还停留在 **tool-call 驱动的隐式循环**这一层。真正深度的 loop 设计——比如多轮自我反思、显式的 plan→execute→verify→repair 闭环、跨会话的任务状态机——目前主流 coding agent 还没做强集成。这也是 Loop Engineer 这个概念想往前推的方向，但落地确实还在早期。
+> 如果只看这段可见调用关系，它确实表现为 `model -> tool calls -> tool results -> model` 的循环。但我不会把一段外部观察扩展成对完整产品内部实现的结论，也不会说主流 Coding Agent 都没有更深的计划、恢复或压缩机制。
+>
+> 我对 Loop Engineering 的工程化理解是：在最小 Tool Loop 之外，明确计划和验证、每轮上下文、失败分类、重试所有权、副作用幂等、终止条件和 Trace。讨论概念时可以提出这个框架；评价具体产品时必须限定证据范围。
 
 ---
 
@@ -105,7 +107,7 @@
 > 选型核心是**跟随主存储、轻量、向量可选**。我们主存储是 SQLite（默认）/ PostgreSQL（可选），向量库不是独立引入一个 Milvus/Qdrant，而是**复用主库的向量扩展**：
 >
 > - **SQLite 路线**：FTS5（全文检索）+ `sqlite-vec`（`vec0` 虚拟表），按 `repo_id`、`model` 做 partition key。
-> - **PostgreSQL 路线**：`tsvector` + GIN 索引（全文）+ `pgvector`（向量）。
+> - **PostgreSQL 路线**：`tsvector` + GIN 索引（全文）+ `pgvector`；物理向量按维度分表，并建立 HNSW cosine 索引。
 >
 > 选型理由：
 > 1. **本地优先，零外部依赖**：CodeWiki 定位是单机/本地团队工具，引入独立向量服务（Milvus/Qdrant/Weaviate）会增加部署复杂度，和"开箱即用"冲突。SQLite + sqlite-vec 一个文件搞定。
@@ -152,6 +154,7 @@
 > 3. **retrieval trace 当前没持久化**：`/graphrag/traces/{trace_id}` 还是 `not_persisted_yet`，意味着检索过程目前不能事后完整回溯，只能拿到结果。这是已知待补的。
 > 4. **启发式解析的边可能有误**：跨文件 call/reference 解析是启发式 + 置信度标注的，不是语言服务器级精确语义分析，重名函数、动态调用会解析错。我们用 confidence + is_inferred 标注，但没消除。
 > 5. **物理向量可能残留**：Chunk 删除会让旧向量不再通过有效 Metadata 参与查询，但分维向量表不是 Chunk 的外键子表，当前还缺少孤儿向量回归证明和清理工具。
+> 6. **工作区可能先于索引变化**：Git Diff/Hash 能发现变化，不等于检索、图、Wiki 和实际源码始终绑定同一个不可变 Revision。大分支含大量未提交修改，或分析过程中源码继续变化时，旧证据仍可能短暂可见。
 >
 > 这些都是工程边界，不是致命问题，但面试时诚实说出来比假装完美强。
 
@@ -250,7 +253,7 @@
 **参考答案**（诚实承认边界 + 讲现有机制）：
 > 诚实说，**CodeWiki 当前不是为多版本并行设计的**，它面向的是"一个仓库一个当前快照"。但有几个相关机制可以讲：
 >
-> 1. **repo_id 隔离**：repo_id 用解析后路径的 SHA1 前 16 位生成，不同 clone 路径或不同分支 checkout 会有不同 repo_id，物理隔离成独立图。理论上可以同机并存多个版本，但不是自动管理。
+> 1. **repo_id 隔离**：repo_id 用解析后路径的 SHA1 前 16 位生成，不同 clone/worktree 路径可以得到不同 repo_id，物理隔离成独立图；同一路径直接切分支不会自动得到新 repo_id。理论上可以同机并存多个版本，但不是自动版本管理。
 > 2. **commit_hash 记录**：`RepoDescriptor` 里有 commit_hash，每次分析记录当前 HEAD，知道这次图对应哪个提交。
 > 3. **增量更新走 git diff**：在同一个 checkout 上，从一个 commit 到另一个 commit 用 git diff 增量更新，不用全量重建。
 >
@@ -267,6 +270,15 @@
 > 3. **时间旅行查询**：保留关键 tag 的快照图，跨版本对比靠图 diff（哪些节点新增/删除/改了边）。
 >
 > 但这是**未来 roadmap，不是已实现**。面试诚实说：当前场景聚焦"理解当前代码"，历史版本追溯是明确待补的能力。
+
+### Q20A. 当前分支有大量未提交改动，但图和向量还是上一个 Commit，Agent 读到旧代码怎么办？
+
+**参考答案（美狮物流面试新增追问）：**
+> 这个问题和“能不能查历史 Commit”不同，它考察的是**当前工作区一致性**。如果索引仍对应旧 Commit，而 Agent 正在修改 dirty working tree，旧 Chunk 和向量不能静默当成当前事实。
+>
+> 当前实现会用 Git Diff 和文件 Hash 发现 changed/new/deleted 文件，MCP Lite 启动时也可以检查变化并做一次增量更新，能降低陈旧概率；但 Graph、Chunk、Wiki、Source Ref 和实际文件读取还没有统一不可变 Revision，所以不能说已经完整解决。
+>
+> 下一版至少要做到：索引按 `repo + worktree + revision` 隔离；未提交改动计算 working-tree content hash；检索前比较 Commit、Git status 和文件 Hash；返回结果携带 `revision_id + content_hash`；真正读文件前再次校验，变化后把本轮证据标为 `stale` 并重检。更完整的方案是不可变 Snapshot 和版本化图，而不是只在查询前“再跑一次向量更新”。
 
 ### Q21. 整个项目有没有用到 vibe coding，用了多少？占多少？
 
@@ -340,6 +352,15 @@
 >
 > 诚实补充：这条路还在早期，没有谁有终局方案，包括 Claude Code 也只是在老编辑器上跑了新引擎，最终形态（树形编辑器？AI-native IDE？）还没定。
 
+### Q25A. 现在很多代码分析能力用 Agent Skill，不建 RAG 数据库，它们怎么工作？CodeWiki 可以借鉴什么？
+
+**参考答案（美狮物流面试新增追问）：**
+> Skill 是可发现、按需加载的过程知识，不是另一种向量库。通常用 `SKILL.md` 描述适用场景和步骤，需要时再加载 references、scripts 或模板；真正取证仍靠 `read/grep/bash/LSP/MCP`。分析可以只进入当前会话，也可以写成仓库内 Markdown、JSON 或 Repo Map，由 Git 管理。
+>
+> 这给 CodeWiki 的启发是：默认先用轻量实时工具，不为每个一次性任务预建重索引；启动时只暴露模块目录和短摘要，需要时再下钻图、源码和完整 Wiki；文件作为可审阅真相源，数据库只是可重建派生索引；每次分析先校验当前分支和 dirty files。
+>
+> 因此今天的正确对照不再只是“普通向量 RAG vs GraphRAG”，而是原生 Agent、Agent + Repo Map/Skill、Agent + CodeWiki 三组。高频跨模块、来源审计和团队共享确有收益时再升级到持久图，否则简单方案更合理。
+
 ### Q26. 下一个风口模型/框架应该朝什么方向发展？
 
 **参考答案**：
@@ -359,7 +380,7 @@
 **参考答案**：
 > 几点心得（结合实战）：
 >
-> 1. **vibe coding 是放大器，不是自动驾驶**：对懂的人 10x 提效，对不懂的人埋雷。前提是你能 review 得动产出——能看出架构问题、边界遗漏、并发坑。不能盲信。
+> 1. **vibe coding 是放大器，不是自动驾驶**：是否提效以及提升多少取决于任务和评测，不能先写死 10x。前提是你能 review 得动产出——能看出架构问题、边界遗漏、并发坑，不能盲信。
 > 2. **边界清晰的任务交给它**：CRUD、模式化代码、测试骨架、前端组件——边界清楚、可验证、错了能跑测试发现。架构决策、核心校验逻辑、并发/增量正确性——自己设计。
 > 3. **上下文给够**：很多 vibe coding 失败不是模型不会写，而是没有给够相关文件、约束、示例和要避免的坑。把上下文边界定义清楚，产出质量会明显不同；具体比例要靠自己的任务统计，不能直接背一个百分数。
 > 4. **小步快跑 + 频繁验证**：不要让 agent 一次写一大坨，写一点跑测试、review、再继续。一次产出越多，错误越隐蔽。
@@ -392,6 +413,7 @@
 2. **Loop / Loop Engineer 概念**——往"社会化协作/开发周期"答偏了。校正：**harness 是包裹模型的外层工程框架，loop 是让 agent 任务闭环（执行→观察→反馈→修正）**，概念开放但要有自己的工程化解读，不硬套社会学框架。
 3. **GraphRAG token 爆炸**——说"没了解过"。这是 GraphRAG 的经典问题，必须会答：**token budget + 深度限制 + 社区摘要聚合 + 噪声过滤**。
 4. **多版本/历史代码查询**——诚实说没做是对的，但要能给出解决方案（按 commit 存多快照 + 图 diff），不能只说"没做"。
+5. **当前工作区陈旧与 Skills 基线**——历史版本和 dirty working tree 是两个问题；对标也不能只做普通 RAG，要加入原生 Agent 与 Repo Map/Skill。
 
 ### 得分点（继续巩固）：
 - CodeWiki 架构讲得清楚（七层 + graph 中心）。
@@ -405,3 +427,4 @@
 - 跟进 Loop Engineer / harness 的社区讨论，形成自己的标准表述。
 - GraphRAG token 控制能举具体数字（budget、max_chunks、深度）。
 - 多版本图管理，准备一个设计草稿，被追问时能展开。
+- 补一组大分支未提交改动的陈旧索引测试，并实际运行或编写一个代码分析 Skill，能说明它如何取证和保存产物。

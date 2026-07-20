@@ -431,10 +431,16 @@ try {
 > 小仓库和一次性问题，直接让成熟 Coding Agent 扫仓库确实更省事，我不会说 CodeWiki 全面优于它。CodeWiki 主要解决三类企业场景：
 >
 > 1. **持久化与共享**：一次扫描得到的上下文通常属于当前会话；CodeWiki 把知识沉淀成团队可复用、可检索、可审计的资产。
-> 2. **确定性结构**：函数调用、继承和模块依赖由 AST/静态分析得到，不依赖模型每次重新猜调用链。
+> 2. **结构证据**：定义、包含、显式导入和精确行范围可以由 AST/静态分析较稳定地提取；跨文件调用、引用和部分继承关系仍可能受重名、动态分派和类型信息缺失影响，需要保留 confidence 与 provenance，不能说整条调用链都是确定事实。
 > 3. **增量扫描与产物失效**：当前优先用 Git Diff 或内容 Hash 找变更文件，复用未变文件的解析符号，只解析新增和修改文件；代码图和社区等后段仍会基于新旧符号集合重建，受影响 Wiki 页面会标记 Stale。不能把它说成所有节点、边、社区和页面都做了局部更新。
 >
 > 成熟 Coding Agent 负责交互式执行，CodeWiki 更像它的企业代码知识底座。最合理的方向不是替代 Claude/Codex，而是通过 MCP 或内部工具接口把 CodeWiki 的结构化检索能力提供给它们。
+
+**美狮物流面试后的补充边界：**
+
+> 今天的最强基线不只是“Agent 直接扫仓库”，还包括 Agent + Repo Map/Skill。Skill 可以用 `SKILL.md` 规定分析步骤，再用 `read/grep/bash/LSP` 实时取证，产物写回 Markdown/JSON，不一定需要向量数据库。因此 CodeWiki 的价值不能只靠“持久化图比临时会话强”来证明，必须比较原生 Agent、Repo Map/Skill 和 CodeWiki 三组的任务结果、索引成本与陈旧率。
+>
+> 另一个边界是本地大分支。当前 Git Diff/Hash 能发现变化，但图、Chunk、Wiki 和实际源码没有统一不可变 Revision；大量未提交改动或分析期间继续改文件时，旧证据仍可能短暂可见。下一版要按 worktree/revision 隔离索引，让 Source Ref 带内容 Hash，读取前再次校验，变化就标 `stale` 重检。
 
 ### Q27. 把源码交给模型有没有安全问题？
 
@@ -535,9 +541,9 @@ try {
 
 > Agent Harness 是一个抽象的控制层，它把 LLM 放进可控运行环境，负责 agent loop、上下文组装、工具调用、状态持久化、超时重试、权限审批、沙箱、trace、成本和终止条件。模型负责下一步决策，Harness 负责把决策安全、可靠地执行。
 >
-> Hermes 则是一个具体的 Agent 宿主/运行环境，不是和 Harness 同层的抽象概念。可以说 Hermes 内部实现了一套 Harness；我的记忆系统通过 HTTP Gateway/sidecar 接入 Hermes，Hermes 负责会话和工具执行，记忆服务提供 `capture`、`recall`、`search` 和 session end 等能力。
+> Hermes 则是一个具体的 Agent 宿主/运行环境，不是和 Harness 同层的抽象概念。可以说 Hermes 具备一套 Harness；Memory 是宿主可调用的能力子系统。
 >
-> 我项目里的关键设计是 host-neutral：OpenClaw 通过 hooks 接入，Hermes 通过 Gateway HTTP 接入，内部都调用同一个 `TdaiCore`。所以 **Harness 是机制，Hermes 是具体宿主，Memory 是 Harness 可调用的一个能力子系统**。
+> 我项目里的 `TdaiCore` 设计为 host-neutral，代码层支持 Hook 和 HTTP Gateway/sidecar 两类接入。按美狮物流面试中被确认的现场口径，实际主部署先说清楚是**本地插件 + SQLite**；某个 Hermes 环境是否已经通过 Gateway 投产，必须由部署记录证明。没有证据时只能说“具备这种适配能力”，不能把支持形态说成真实业务接入。
 
 ---
 
