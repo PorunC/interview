@@ -240,7 +240,7 @@ After each tool call completes, `after_tool_call` captures the tool name, parame
 
 The decision to compress is driven primarily by two classes of signals: token watermarks and information value.
 
-The first tier is mild compression. The system uses tiktoken to compute the current context token count. If it exceeds the mild threshold, e.g., 50% of the context window by default, it replaces historical tool results with summaries. Priority is given to compressing tool results where "summary sufficiently replaces the original" — i.e., records with higher L1 `score`. The replaced content includes the summary, `node_id`, and `result_ref`.
+The first tier is mild compression. The implementation can use a cheap character-based estimate when the prompt is safely below a boundary and an exact tiktoken count when a threshold decision is close. If usage exceeds the mild threshold, 50% of the context window by default, it replaces eligible historical tool results with summaries. Priority is given to records where the L1 `score` indicates that the summary can replace the original more safely. The replacement retains the summary, `node_id`, and `result_ref`.
 
 The second tier is aggressive compression. If tokens approach the aggressive threshold, e.g., 85% by default, replacing with summaries alone is no longer enough, so earlier historical message prefixes are deleted. But deletion is only removal from the current prompt, not from storage. By this point, those tool logs already have jsonl summaries, refs originals, and Mermaid node mappings.
 
@@ -254,7 +254,7 @@ flowchart TD
     Tool --> Entry["Write to offload jsonl<br/>summary / score / result_ref"]
     Entry --> L2["L2 Generate Mermaid<br/>Bind node_id"]
 
-    Msg["Next-round Prompt Building"] --> Count["tiktoken Compute Context"]
+    Msg["Next-round Prompt Building"] --> Count["Fast Estimate<br/>Exact Count Near Boundary"]
     Count --> Mild{"Over 50%?"}
     Mild -- Yes --> Replace["Mild Compression<br/>Replace Tool Results with Summaries"]
     Replace --> Agg{"Over 85%?"}
@@ -813,6 +813,9 @@ You can also ask:
 - Architecture: L0 originals, L1 atomic facts, L2 scenarios, L3 Persona.
 - Retrieval: Vector + BM25 + RRF.
 - Compression: refs originals, jsonl summaries, MMD state diagrams.
+- Mental model: token-level external memory first; parametric memory only for stable shared patterns; latent memory has a narrower runtime lifecycle.
+- Context engineering: reduction removes content, offloading externalizes evidence with refs, and isolation limits each sub-agent to a sufficient task slice.
+- Markdown memory: useful for small, stable, reviewed rules; dynamic facts and large event histories belong in versioned stores and retrieval layers.
 - Recorded benchmarks: WideSearch tokens 221.31M -> 85.64M and pass rate 33% -> 50%; PersonaMem final-answer accuracy 48% -> 76%. These are configuration-scoped offline results.
 - Keywords: traceability, tiered, context governance, prompt cache, state recovery.
 
@@ -900,6 +903,24 @@ I would first state the current behavior: the L1 parser strips an optional fence
 
 **Answer:**  
 Because the objectives differ at different watermarks. The mild phase replaces eligible tool results with summaries. The aggressive phase can delete older prompt messages while retaining offloaded tool references. The emergency phase is a lossy last resort that protects the latest real user message but can remove earlier user messages or truncate oversized content. `refs` preserve offloaded tool originals, not every deleted conversation message. The three tiers make the quality-versus-availability trade-off explicit.
+
+### Q9: How do token-level, parametric, and latent memory differ?
+
+**Answer:**
+
+Token-level memory is external and inspectable, such as Markdown, JSON, database records, or text attached to vector entries. Parametric memory changes model weights through pre-training, fine-tuning, or adapters. Latent memory reuses internal runtime representations such as KV cache or hidden state. For user facts and business state, I start with token-level memory because it supports provenance, correction, tenant isolation, and deletion. I reserve parameterization for stable patterns supported by offline evaluation.
+
+### Q10: How do context reduction, offloading, and isolation differ?
+
+**Answer:**
+
+Reduction prunes or summarizes history and can lose information. Offloading moves large evidence outside the prompt and leaves a summary plus a recoverable reference. Isolation gives a sub-agent only the task state and evidence it needs. They solve different pressure points and can be combined; offloading needs ref integrity and bounded reads, while isolation needs a tested minimum evidence contract.
+
+### Q11: When would you use Markdown memory instead of a vector store or memory framework?
+
+**Answer:**
+
+I use Markdown for small, stable, human-reviewed rules such as commands, architecture decisions, and repository pitfalls. I use vector or hybrid retrieval for large personal-event collections, RAG for shared document knowledge, and a memory framework when extraction, conflict updates, graph relations, or managed lifecycle features justify the additional machinery. A practical system can combine all of them rather than forcing one storage model onto every memory type.
 
 ---
 

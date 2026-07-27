@@ -1132,6 +1132,176 @@ If interviewing for an Agent platform / Memory Infra role, you can counter-ask:
 
 ---
 
+# Part 7: Modern Memory Representations, Context Engineering, and Markdown Memory
+
+This section maps to Q036-Q054 in the Chinese Agent Memory knowledge guide. It is a general architecture and technology-selection supplement, not evidence that every mechanism exists in the in-house project.
+
+## 7.1 Memory Representations and Lifecycle
+
+### Q1: What are token-level, parametric, and latent memory?
+
+**Answer:**
+
+Token-level memory stores information as externally readable text or structured records, such as Markdown, JSON, database rows, and the text attached to vector entries. It is comparatively easy to inspect, version, correct, and delete.
+
+Parametric memory encodes patterns in model weights through pre-training, fine-tuning, or an adapter such as LoRA. It is available directly during inference, but a single fact is difficult to locate, update, or remove.
+
+Latent memory keeps recent computation in internal representations such as KV cache or hidden states. It is fast to reuse inside its supported lifecycle, but it is harder to explain, persist across versions, or govern as a durable business record.
+
+For business-facing long-term memory, I normally start with token-level external memory because auditability, correction, tenant scope, and deletion matter more than hiding facts inside the model.
+
+### Q2: Can information move among those three representations?
+
+**Answer:**
+
+Yes, but I treat it as workload-aware tiering, not an automatic promotion ladder. Stable text can be precomputed into a cache, and a high-frequency pattern supported by many stable examples may eventually become an offline-trained adapter. The reverse direction is much harder: knowledge in weights or activations cannot be losslessly reconstructed into source-grounded records.
+
+Before moving information, I would evaluate reuse frequency, latency benefit, training and serving cost, tenant isolation, correction frequency, and deletion requirements. Fast-changing user facts should remain external and versioned rather than being pushed into parameters.
+
+### Q3: Are short-term memory and working memory the same thing?
+
+**Answer:**
+
+They are often used loosely as synonyms, but I separate them in an engineering design. Short-term memory is the session-scoped temporary set, including recent messages, tool observations, and scratch artifacts. Working memory is the active state organized for the current goal: the plan, constraints, unresolved steps, selected evidence, and result references.
+
+The conversation history is an event stream. Working memory is executable state derived from that stream. They must stay aligned, but they should not be modeled as the same object.
+
+### Q4: How do encode, store, retrieve, consolidate, reflect, and forget map to a real pipeline?
+
+**Answer:**
+
+Encode converts raw interaction into schema-bound candidates. Store performs idempotent persistence and version control. Retrieve applies authorization filters, candidate generation, fusion, reranking, and prompt injection. Consolidate merges fragmented events into a current fact, profile, or procedure. Reflect derives a higher-level lesson from task outcomes. Forget applies expiration, decay, invalidation, compression, anonymization, or hard deletion.
+
+These are semantic stages, not necessarily six microservices. The important engineering requirement is to retain input versions, output versions, provenance, and failure states so that the pipeline can be replayed, rebuilt, and audited.
+
+## 7.2 Context Engineering, Retrieval, and Consolidation
+
+### Q5: What is the difference among context reduction, offloading, and isolation?
+
+**Answer:**
+
+Context reduction directly decreases the history sent to the model through a sliding window, pruning, or summarization. Its main risk is information loss.
+
+Offloading moves large tool results, web pages, or files into external storage while the prompt retains a summary and a recoverable reference. It must handle stale references, read timeouts, size limits, authorization, and fallback behavior.
+
+Isolation gives a sub-agent only the task slice and evidence it needs instead of broadcasting the full parent history. It reduces duplication and leakage, but the delegated task still needs a sufficient minimum evidence set. A mature runtime usually combines all three techniques.
+
+### Q6: What are the main risks in the record path and retrieve path?
+
+**Answer:**
+
+The record path handles admission, extraction, deduplication, conflict resolution, and persistence. Its major risks are missed extraction, fabricated facts, duplicate writes, stale overwrites, and cursor advancement before durable commit. I would retain raw evidence, use source and batch IDs for idempotency, and use explicit versions for concurrent updates.
+
+The retrieve path handles query understanding, authorization, filters, candidate recall, reranking, and injection. Its major risks are cross-tenant leakage, false recall, stale facts, and higher time to first token. Shallow profiles may be preloaded and deeper memories retrieved on demand, but latency optimization must never bypass authorization.
+
+### Q7: How do a VectorStore, GraphStore, and reranker divide responsibility?
+
+**Answer:**
+
+A VectorStore generates semantic-neighbor candidates and works well when intent is similar but wording differs. A GraphStore preserves entities, relations, temporal edges, and invalidation history, which is useful for multi-hop or conflict-aware questions. A reranker evaluates the query and a smaller candidate set together, reducing the chance that a semantically similar but operationally irrelevant item enters the prompt.
+
+Not every system needs all three. I would first make provenance, authorization, retrieval traces, and evaluation work with files, a relational store, or BM25. Vector and graph components should be added when the data and query shape justify them.
+
+### Q8: How do Letta, Zep/Graphiti, and MemOS differ conceptually?
+
+**Answer:**
+
+I would compare exact versions rather than use permanent labels. Letta continues the MemGPT-style virtual-memory idea: a limited main context exchanges information with external context. Zep should be evaluated together with Graphiti's temporal knowledge-graph model, where events, entity relations, valid time, and edge invalidation are central. MemOS emphasizes unified scheduling across textual, activation, and parametric memory forms.
+
+They are not solving exactly the same primary problem. The choice depends on whether the workload is dominated by long-conversation context management, temporal relationship retrieval, or multi-form memory orchestration. GitHub stars and one benchmark are not enough for selection.
+
+### Q9: Why should long-term facts be pushed into LoRA only with great caution?
+
+**Answer:**
+
+LoRA is suitable for learning stable shared behavior from many examples. It is a poor default for facts that change frequently, must be isolated by user, or need row-level inspection and deletion. A database record can be versioned, corrected, and audited; once a fact affects adapter weights, locating and completely removing it is much harder. Dynamic adapter mounting also adds versioning, routing, and serving-isolation cost.
+
+I keep user preferences and business state in an external, versioned memory layer. I consider parameterization only for stable patterns that pass offline evaluation and have a clear lifecycle.
+
+### Q10: What is the difference between reflection and consolidation?
+
+**Answer:**
+
+Consolidation compresses and organizes existing memories, for example merging ten repeated project-background records into one current view with sources. Reflection derives a higher-level judgment or strategy from an outcome, for example why a task failed and what procedure should change next time.
+
+Both can accidentally turn uncertain evidence into an overly confident conclusion. Their outputs should retain input versions, provenance, confidence, dry-run visibility, and a rollback or rebuild path.
+
+### Q11: How should time decay be used in memory retrieval?
+
+**Answer:**
+
+A common heuristic is `score = relevance * importance * decay(t)`, where `decay(t)` may be exponential. I would not scan the entire vector store and recompute a dynamic score for every record. I would first retrieve a bounded candidate set, then let the reranking stage combine relevance, recency, importance, trust, and current validity.
+
+Decay is policy, not truth. Legal grounds, stable identity facts, explicit user pins, and active instructions should not disappear mechanically just because time passed.
+
+### Q12: Why do teams often improve recall before adding more complex write logic?
+
+**Answer:**
+
+When users say the Agent forgot something, the record may already exist. The failure could be query rewriting, an identity filter, a time range, fusion weights, reranking, index lag, or final context trimming. Retrieval traces and a labeled query set help separate missing writes from missed recall.
+
+If the correct memory was already retrieved but never reached the answer, adding another extraction model increases cost and noise without fixing the problem. The optimization order should follow error attribution.
+
+## 7.3 Markdown Memory for Coding Agents
+
+### Q13: When is Markdown a good Agent Memory format?
+
+**Answer:**
+
+Markdown is a strong choice when memory volume is controlled and human readability, review, and version history matter more than semantic search. Typical examples are project commands, supported tool versions, architectural decisions, team conventions, user communication preferences, and recurring repository pitfalls.
+
+It works naturally with Git, diff, review, and rollback. Its boundary is equally important: a Markdown file does not automatically provide semantic retrieval, concurrent conflict resolution, row-level authorization, temporal queries, or proof of hard deletion.
+
+### Q14: How do you choose among Markdown, a vector store, RAG, and a memory framework?
+
+**Answer:**
+
+I use Markdown for small, stable, human-edited rules. I use vector or hybrid retrieval when a large collection of personal events must be searched by query. I use RAG for shared document knowledge. I evaluate a memory framework when the system needs multi-source extraction, updates, conflicts, graph relations, managed APIs, or a richer lifecycle.
+
+The choices can be composed: Markdown for team rules, a relational database for the current profile, a vector index for historical events, and RAG for public or organizational knowledge.
+
+### Q15: What belongs in `CLAUDE.md`, and what does not?
+
+**Answer:**
+
+It should contain information the model cannot infer reliably from reading the repository: supported stack versions, build and test commands, architectural decisions and their reasons, team workflow, and project-specific failure traps. Rules should be concrete and verifiable, and a prohibition should include the preferred alternative.
+
+Formatting belongs in a linter. Large amounts of generic framework knowledge should stay in linked documentation. Complete logs, fast-changing operational data, credentials, and secrets do not belong in the file. Each durable rule should ideally correspond to a real recurring failure; otherwise it dilutes the important constraints.
+
+### Q16: What is the difference among `CLAUDE.md` hierarchy, `@` imports, and path-scoped rules?
+
+**Answer:**
+
+User-level files apply across one developer's projects. Project-level files are shared by the team. Local files can hold uncommitted machine-specific guidance. Subdirectory or path-scoped rules constrain only the relevant module.
+
+An `@` import improves organization, but imported content may still be loaded into context; it is not automatically a token-saving mechanism. Path-scoped rules are better for backend, test, or documentation constraints that should activate only when matching files are involved. Exact precedence, size limits, and loading behavior must be checked against the current tool version.
+
+### Q17: How are `AGENTS.md` and `CLAUDE.md` related?
+
+**Answer:**
+
+Both are repository instruction files for coding agents, but they target different tool ecosystems. `CLAUDE.md` is a native Claude Code entry point, while `AGENTS.md` is used by Codex and other tools that support that convention.
+
+For a multi-tool repository, I would keep a stable shared rule set and let each tool-specific entry point reference or extend it. I would not assume that one Agent automatically reads the other tool's file; support and precedence must be verified in the actual runtime.
+
+### Q18: How does auto memory differ from team-shared Markdown memory?
+
+**Answer:**
+
+Auto memory is accumulated from one user's sessions and is useful for personal debugging patterns or workflow preferences. It can become contradictory or stale as sessions accumulate. Team-shared Markdown is reviewed, committed, and intended to affect every contributor.
+
+An automatic personal note should not become a team rule without evidence, deduplication, and review. CI-generated environment noise should not be promoted either. Important lessons move from personal memory to the shared layer through an explicit review process.
+
+### Q19: How do you maintain Markdown Memory for production use?
+
+**Answer:**
+
+I use error-driven incremental maintenance: add a rule after a real repeated failure, remove obsolete rules regularly, and use Git review to preserve reasons and rollback points. Secrets remain in a secret manager. Concurrent edits need conflict handling, and the system should detect loading failures and oversized files. Representative tasks should test that the rules still improve behavior.
+
+When data volume, tenant count, update frequency, or retrieval requirements exceed the file model, Markdown can remain the auditable policy entry point while dynamic facts and historical events move to a database and retrieval layer.
+
+---
+
 # Conclusion
 
 The easiest way to tell a shallow version of this project is to only talk about the tiered architecture and Hybrid RRF. But **what really makes an interviewer nod is**:
