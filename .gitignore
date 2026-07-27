@@ -1,2 +1,5 @@
 /项目/
 *.exe
+node_modules/
+.vitepress/cache/
+.vitepress/dist/

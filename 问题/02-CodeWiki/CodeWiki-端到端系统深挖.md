@@ -1420,7 +1420,7 @@ flowchart TD
 
 ### Q13: 向量表为什么按维度分表？
 
-> 不同 embedding 模型维度不同，1536、768、1024 都有。如果硬塞到一张固定维度表，换模型就得重建。CodeWiki 的设计是 code_chunk_embedding 元数据表加按维度的向量表 code_chunk_embedding_vec_<dimensions>。换模型就新建一张维度表，旧的保留，元数据不丢。
+> 不同 embedding 模型维度不同，1536、768、1024 都有。如果硬塞到一张固定维度表，换模型就得重建。CodeWiki 的设计是 `code_chunk_embedding` 元数据表加按维度的向量表 `code_chunk_embedding_vec_<dimensions>`。换模型就新建一张维度表，旧的保留，元数据不丢。
 
 ### Q14: repo_write_lock 怎么实现的？
 

@@ -26,6 +26,7 @@
 | Python 与 FastAPI | [Python 与 FastAPI 高频面试题](./09-Python与FastAPI/Python与FastAPI高频面试题.md) | 120 道口语题，覆盖 Python 对象与异步、ASGI/FastAPI、Pydantic、SQLAlchemy、测试、观测、安全和部署 |
 | Python 源码与异步故障 | [Python/FastAPI 源码与异步故障面试题](./09-Python与FastAPI/Python-FastAPI源码与异步故障面试题.md) | 60 道深挖题，覆盖 CPython、asyncio、ASGI、Pydantic、SQLAlchemy、故障现场和 6 道手写题 |
 | LLM 推理与 RAG 生产化 | [LLM 推理与 RAG 生产化高频面试题](./10-LLM推理与RAG生产化/LLM推理与RAG生产化高频面试题.md) | 64 道深挖口语题，覆盖推理调度、KV Cache、Context/RAG、Eval、安全、成本与模型路由四连问 |
+| RAG 概念与专项 | [RAG 核心概念与高频面试题](./10-LLM推理与RAG生产化/RAG核心概念与高频面试题.md) | 基于 JavaGuide RAG 专题整理的概念速查和 50 道口语题，覆盖文档处理、Chunking、向量库、检索优化、GraphRAG、评测和更新治理 |
 | 后端基础设施 | [Java 21、网络、Kubernetes、分布式与 AI 运行时](./10-后端基础设施/Java21-网络-Kubernetes-分布式与AI运行时面试题.md) | 45 道生产化口语题，覆盖 Virtual Threads、WebFlux、TCP/TLS/HTTP、Kubernetes、CDC、可靠流式与 Agent Runtime |
 | 网络/Kubernetes/分布式故障 | [网络、Kubernetes 与分布式故障现场题](./10-后端基础设施/网络-Kubernetes-分布式故障现场题.md) | 80 道现场题，覆盖网络命令、Kubernetes 故障、Raft/Lease、SRE 证据链和综合演练 |
 | 中文系统设计 | [大厂系统设计与故障追问题](./13-系统设计/大厂系统设计与故障追问题.md) | 60 道、10 个完整案例，覆盖容量、API、模型、一致性、分片、故障、安全、观测和演进 |
@@ -65,7 +66,7 @@
 - `07-Java后端`：针对真实 Java 面试暴露项和后端岗位的系统化口语题。
 - `08-算法与现场编码`：针对后续 Coding Round 的算法、并发和 AI/后端现场编码训练，不冒充已经被问过的原题。
 - `09-Python与FastAPI`：针对简历 Python/FastAPI 技术栈的语言、Web、数据库、测试与生产工程专项，答案连接 CodeWiki 但不反向虚构项目能力。
-- `10-LLM推理与RAG生产化`：补齐推理引擎、上下文生命周期、RAG 权限与删除、评测统计、Agent 安全和全局成本；论文结果不冒充项目指标。
+- `10-LLM推理与RAG生产化`：概念专题覆盖 RAG 基础链路、文档处理、向量索引、检索优化、GraphRAG 和更新；生产化题库继续补齐推理引擎、上下文生命周期、RAG 权限与删除、评测统计、Agent 安全和全局成本；文献结果不冒充项目指标。
 - `10-后端基础设施`：补齐 Java 21、网络协议、Kubernetes、CDC、可靠流式和 AI Runtime；项目未实现的能力统一按下一版设计回答。
 - `11-金融AI`：补齐海外金融岗位涉及的市场数据、财务建模、自动授信、模型风险、KYC/AML 和金融 Agent，并提供 SQL/Python 实操；没有本人生产经历的内容只按知识或迁移设计回答。
 - `12-TypeScript与React`：补齐 CodeWiki 前端栈、可执行手写题、React 故障和浏览器系统设计；Zustand、SSE/WebSocket、Worker 与前端测试等当前未实现能力必须明确按下一版回答。

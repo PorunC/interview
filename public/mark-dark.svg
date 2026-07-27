@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="面试资料库">
+  <rect width="40" height="40" rx="8" fill="#5eead4"/>
+  <path d="M11 10.5h13.5a4.5 4.5 0 0 1 4.5 4.5v14.5H15.5A4.5 4.5 0 0 1 11 25V10.5Z" fill="#10201d"/>
+  <path d="M15 15h10M15 19.5h10M15 24h6" fill="none" stroke="#5eead4" stroke-width="2" stroke-linecap="round"/>
+</svg>
