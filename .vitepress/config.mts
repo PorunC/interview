@@ -9,12 +9,9 @@ const base = process.env.DOCS_BASE
 
 const problemLabels: Record<string, string> = {
   "00-总览": "00 · 总览",
-  "01-AI周报系统": "01 · AI 周报系统",
-  "02-CodeWiki": "02 · CodeWiki",
-  "03-Agent-Memory": "03 · Agent Memory",
+  "项目": "01 · 项目",
   "04-AI-Agent通用": "04 · AI Agent 通用",
   "05-英文面试": "05 · 英文面试",
-  "06-Pi": "06 · Pi Coding Agent",
   "07-Java后端": "07 · Java 后端",
   "08-算法与现场编码": "08 · 算法与现场编码",
   "09-Python与FastAPI": "09 · Python 与 FastAPI",
@@ -23,6 +20,13 @@ const problemLabels: Record<string, string> = {
   "11-金融AI": "11 · 金融 AI",
   "12-TypeScript与React": "12 · TypeScript 与 React",
   "13-系统设计": "13 · 系统设计"
+};
+
+const projectLabels: Record<string, string> = {
+  "01-AI周报系统": "01 · AI 周报系统",
+  "02-CodeWiki": "02 · CodeWiki",
+  "03-Agent-Memory": "03 · Agent Memory",
+  "04-Pi": "04 · Pi Coding Agent"
 };
 
 function stripInlineMarkdown(value: string): string {
@@ -68,18 +72,49 @@ function toItems(files: string[]): DefaultTheme.SidebarItem[] {
   }));
 }
 
+function problemDirectoryOrder(name: string): string {
+  if (name === "00-总览") return "00";
+  if (name === "项目") return "01";
+  return name;
+}
+
+function projectSidebarItems(directory: string): DefaultTheme.SidebarItem[] {
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true }))
+    .map((entry) => ({
+      text: projectLabels[entry.name] || entry.name,
+      collapsed: true,
+      items: toItems(markdownFiles(path.join(directory, entry.name)))
+    }));
+}
+
 function problemSidebar(): DefaultTheme.SidebarItem[] {
   const directory = path.join(root, "问题");
   const rootItems = toItems(markdownFiles(directory));
   const groups = fs
     .readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN", { numeric: true }))
-    .map((entry) => ({
-      text: problemLabels[entry.name] || entry.name,
-      collapsed: entry.name !== "00-总览",
-      items: toItems(markdownFiles(path.join(directory, entry.name)))
-    }));
+    .sort((left, right) =>
+      problemDirectoryOrder(left.name).localeCompare(problemDirectoryOrder(right.name), "zh-CN", { numeric: true })
+    )
+    .map<DefaultTheme.SidebarItem>((entry) => {
+      const groupDirectory = path.join(directory, entry.name);
+      if (entry.name === "项目") {
+        return {
+          text: problemLabels[entry.name],
+          collapsed: false,
+          items: projectSidebarItems(groupDirectory)
+        };
+      }
+
+      return {
+        text: problemLabels[entry.name] || entry.name,
+        collapsed: entry.name !== "00-总览",
+        items: toItems(markdownFiles(groupDirectory))
+      };
+    });
 
   return [
     {
@@ -138,7 +173,7 @@ export default defineConfig({
   description: "AI 应用、Java 后端、系统设计、真实面试复盘与公司调研",
   rewrites: {
     "问题/README.md": "问题/index.md",
-    "问题/03-Agent-Memory/README.md": "问题/03-Agent-Memory/index.md",
+    "问题/项目/03-Agent-Memory/README.md": "问题/项目/03-Agent-Memory/index.md",
     "问题/05-英文面试/README.md": "问题/05-英文面试/index.md",
     "面试分析/README.md": "面试分析/index.md",
     "公司/README.md": "公司/index.md"

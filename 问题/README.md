@@ -11,14 +11,17 @@
 | 事实核对 | [面试前个人事实核对清单](./00-总览/面试前个人事实核对清单.md) | 补齐团队、投产、用户、QPS、模型、部署和指标证据，禁止临场编数字 |
 | 行为面与 HR | [行为面与 HR 面试口语作战手册](./00-总览/行为面与STAR证据化面试题.md) | 100 道题簇式口语题；覆盖真实面试命中、离职与稳定性压力链、岗位匹配、Ownership、协作延期、失败复盘、薪资 Offer、工作边界和反问 |
 | 三小时深挖模拟 | [三小时深度挖掘题库](./00-总览/三小时面试-十年面试官视角深度挖掘题库.md) | 按面试官追问顺序做完整演练 |
-| AI 周报专项 | [AI 周报系统专项面试问答](./01-AI周报系统/AI周报系统-专项面试问答.md) | 46 道题，覆盖批处理、数据完整性、根因诊断迁移、DAG、LLM Map-Reduce、重放和上游对账 |
-| CodeWiki 专项 | [CodeWiki 全链路源码级深入分析](./02-CodeWiki/CodeWiki-全链路源码级深入分析.md) | 95 道题，覆盖多语言 AST、置信代码图、GraphRAG、Wiki 引用、增量、MCP 长任务和 Revision 一致性 |
-| Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 95 道题，覆盖长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯、多租户中台和失败语义 |
+| AI 周报专项 | [AI 周报系统专项面试问答](./项目/01-AI周报系统/AI周报系统-专项面试问答.md) | 46 道题，覆盖批处理、数据完整性、根因诊断迁移、DAG、LLM Map-Reduce、重放和上游对账 |
+| AI 周报真实面试 | [AI 周报系统真实面试题与答案](./项目/01-AI周报系统/AI周报系统-真实面试题与答案.md) | 9 张统一答案卡，包含现场来源公司、题号、正确答案和事实边界 |
+| CodeWiki 专项 | [CodeWiki 全链路源码级深入分析](./项目/02-CodeWiki/CodeWiki-全链路源码级深入分析.md) | 100 道题，覆盖多语言 AST、置信代码图、GraphRAG、Wiki 引用、增量、MCP 长任务和 Revision 一致性 |
+| CodeWiki 真实面试 | [CodeWiki 真实面试题与答案](./项目/02-CodeWiki/CodeWiki-真实面试题与答案.md) | 11 张统一答案卡，包含现场来源公司、题号、正确答案和事实边界 |
+| Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./项目/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 104 道题，覆盖长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯、多租户中台和失败语义 |
+| Agent Memory 真实面试 | [Agent Memory 真实面试题与答案](./项目/03-Agent-Memory/Agent-Memory-真实面试题与答案.md) | 14 张统一答案卡，包含现场来源公司、题号、正确答案和事实边界 |
 | Agent 基础补课 | [AI Agent 通用面试题](./04-AI-Agent通用/AI-Agent-通用面试题.md) | 查缺补漏，不建议从头背完整本 |
 | AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 272 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Java/TypeScript/Python 主流框架、生产故障、Agent 前端与项目映射 |
 | 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练项目深挖、行为与 HR、20 道 Live Coding 和 3 道系统设计 |
 | 英文行为与 HR | [英文行为面与 HR 追问口语模板](./05-英文面试/英文行为面与HR追问口语模板.md) | 40 道英文口语模板，覆盖求职动机、Ownership、冲突、失败、谈薪与反问；所有 `[FILL: ...]` 必须用真实事实替换 |
-| Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./06-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
+| Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./项目/04-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
 | Java 后端 | [Java 后端高频面试题](./07-Java后端/Java后端高频面试题.md) | 120 道口语题，补齐 Java/JUC/JVM/Spring/MySQL/Redis/MQ/分布式和故障排查 |
 | Java 源码与中间件 | [Java 源码与中间件生产化面试题](./07-Java后端/Java源码与中间件生产化面试题.md) | 100 道源码和生产题，覆盖 JUC、Spring/MyBatis、MySQL、Redis、Kafka 及 10 道完整手写题 |
 | 算法与现场编码 | [算法与现场编码高频题](./08-算法与现场编码/算法与现场编码高频题.md) | 100 道口语题，按思路、不变量、复杂度和易错点练习算法、并发与后端现场设计 |
@@ -59,10 +62,10 @@
 ## 目录职责
 
 - `00-总览`：当前综合主入口，优先维护。
-- `01-AI周报系统`、`02-CodeWiki`、`03-Agent-Memory`：三个简历项目的专项事实和深挖问答。
+- `项目/01-AI周报系统`、`项目/02-CodeWiki`、`项目/03-Agent-Memory`：三个简历项目的专项事实、真实面试答案和深挖问答。
+- `项目/04-Pi`：公司内部引入的 Coding Agent 源码研究与改造评估，不冒充上游全部实现。
 - `04-AI-Agent通用`：不绑定具体项目的基础知识和系统设计题。
 - `05-英文面试`：英文项目、行为/HR、Live Coding 和系统设计表达材料，不单独定义项目事实。
-- `06-Pi`：公司内部引入的 Coding Agent 源码研究与改造评估，不冒充上游全部实现。
 - `07-Java后端`：针对真实 Java 面试暴露项和后端岗位的系统化口语题。
 - `08-算法与现场编码`：针对后续 Coding Round 的算法、并发和 AI/后端现场编码训练，不冒充已经被问过的原题。
 - `09-Python与FastAPI`：针对简历 Python/FastAPI 技术栈的语言、Web、数据库、测试与生产工程专项，答案连接 CodeWiki 但不反向虚构项目能力。
@@ -72,7 +75,7 @@
 - `12-TypeScript与React`：补齐 CodeWiki 前端栈、可执行手写题、React 故障和浏览器系统设计；Zustand、SSE/WebSocket、Worker 与前端测试等当前未实现能力必须明确按下一版回答。
 - `13-系统设计`：用完整中文案例训练需求澄清、变量估算、API、数据模型、一致性、故障、安全和演进；案例不是本人现有项目经历。
 
-早期项目深挖、真实追问题库和综合补充稿已经按主题并入以上当前文档，不再保留平行旧版本。具体迁移位置见 [三个项目实际面试提问汇总](../面试分析/三个项目-实际面试提问汇总.md#七旧版题库内容去向)。
+早期项目深挖和综合补充稿已经按主题并入以上当前文档；真实追问按三个简历项目拆分到各自目录，跨项目公共答案与公司题号映射保留在 [三个项目实际面试提问汇总](../面试分析/三个项目-实际面试提问汇总.md)。
 
 ## 统一回答规则
 

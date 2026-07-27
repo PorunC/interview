@@ -663,5 +663,5 @@ try {
 
 - Java 基础与本场八股补课见：[Java 后端高频面试题](../问题/07-Java后端/Java后端高频面试题.md)。
 - 公司业务、主体、资金和风险核验见：[丰泊国际公司深度分析](../公司/丰泊国际FundPark_公司深度分析报告.md)。
-- Agent Memory 架构见：[Agent Memory 全链路源码级深入分析](../问题/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md)。
+- Agent Memory 架构见：[Agent Memory 全链路源码级深入分析](../问题/项目/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md)。
 - 三个项目继续深挖见：[三小时面试深挖题库](../问题/00-总览/三小时面试-十年面试官视角深度挖掘题库.md)。

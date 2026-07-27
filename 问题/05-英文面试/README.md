@@ -19,9 +19,9 @@
 
 ## 事实基线
 
-- AI 周报：[中文专项主文档](../01-AI周报系统/AI周报系统-专项面试问答.md)
-- CodeWiki：[中文专项主文档](../02-CodeWiki/CodeWiki-全链路源码级深入分析.md)
-- Agent Memory 当前实现：[中文专项主文档](../03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md)
-- Agent Memory 通用概念与选型：[中文知识体系](../03-Agent-Memory/Agent记忆知识体系与开源项目面试题.md)
+- AI 周报：[中文专项主文档](../项目/01-AI周报系统/AI周报系统-专项面试问答.md)
+- CodeWiki：[中文专项主文档](../项目/02-CodeWiki/CodeWiki-全链路源码级深入分析.md)
+- Agent Memory 当前实现：[中文专项主文档](../项目/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md)
+- Agent Memory 通用概念与选型：[中文知识体系](../项目/03-Agent-Memory/Agent记忆知识体系与开源项目面试题.md)
 
 英文旧稿如果和中文主文档冲突，以中文主文档为准，尤其注意不要复述未经压测证明的延迟、并发、容量和覆盖率数字。
