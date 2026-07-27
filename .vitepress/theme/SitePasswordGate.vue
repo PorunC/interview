@@ -59,8 +59,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <slot v-if="isAuthenticated" />
-  <main v-else class="site-gate" aria-labelledby="site-gate-title">
+  <div :inert="isAuthenticated ? undefined : true" :aria-hidden="isAuthenticated ? undefined : 'true'">
+    <slot />
+  </div>
+  <main v-if="!isAuthenticated" class="site-gate" aria-labelledby="site-gate-title">
     <section class="site-gate__panel">
       <a class="site-gate__brand" :href="withBase('/')" aria-label="返回面试资料库首页">
         <img :src="withBase('/mark.svg')" alt="" width="38" height="38" />
