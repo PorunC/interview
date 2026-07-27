@@ -37,6 +37,7 @@ jobs:
         run: npm run docs:build
         env:
           DOCS_BASE: /${{ github.event.repository.name }}/
+          VITE_SITE_PASSWORD_HASH: ${{ secrets.SITE_PASSWORD_HASH }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

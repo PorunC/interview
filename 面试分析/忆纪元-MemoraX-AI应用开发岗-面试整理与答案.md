@@ -687,5 +687,5 @@ Narrative Generation
 
 - 公司主体、融资、技术与 Offer 风险：`公司/MemoraX_AI_公司深度分析报告.md`
 - Agent Memory 当前实现与评测口径：`问题/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md`
-- Agent Memory 端到端讲解：`问题/03-Agent-Memory/Agent-Memory-端到端系统深挖.md`
+- Agent Memory 源码级主文档：`问题/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md`
 - 记忆开源生态与 Mem0 对标：`问题/03-Agent-Memory/Agent记忆生产治理与开源生态面试题.md`

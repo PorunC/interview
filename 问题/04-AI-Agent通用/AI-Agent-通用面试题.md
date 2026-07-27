@@ -24,6 +24,7 @@
 - 14. SKILL
 - 15. Harness
 - 16. 实战边界补充
+- 17. Agent 执行引擎系统设计
 
 ## 课前必读
 
@@ -3083,23 +3084,7 @@ Action: finish[答案]
 
 ## 10. 安全与风险
 
-### 141. 什么是 Prompt 注入攻击？
-
-**答：**
-
-**权威定义**：OWASP LLM01:2025 Prompt Injection——用户输入改变 LLM 行为使其偏离预期，是 2025 Top 10 第一位风险。学术定义 Greshake et al. 2023——"LLM 集成应用模糊了数据与指令的边界"。
-
-**分类**：直接注入（攻击者直接在对话输入覆盖系统指令）、间接注入（恶意指令植入 LLM 会检索的外部数据如网页/邮件/文档，Greshake et al. arXiv:2302.12173）、工具回流注入（工具返回结果含恶意指令污染 Agent 上下文，InjecAgent）。
-
-**间接注入严重性**：攻击者无需直接接口，远程在 LLM 会检索的数据中埋入指令。可实现类任意代码执行：操纵 API 调用、数据窃取、蠕虫化、信息生态污染。典型：Bing Chat（GPT-4）被网页注入操控。ReAct-GPT-4 在 InjecAgent 中 24% 攻击成功率。
-
-**Agent 场景更危险**：因为模型可能调用真实工具——注入成功可能导致删文件、转账、发邮件等真实世界副作用。
-
-**评估基准**：AgentDojo（97 任务/629 安全用例）、InjecAgent（1054 用例）、HarmBench（18 种红队方法 vs 33 个目标）、AdvBench/Tensor Trust。
-
-**真实案例**：2023-05 Mata v. Avianca（律师提交 ChatGPT 编造判例被罚 $5000）；Bing Chat 被网页注入操控。
-
-**易追问点**：间接注入为什么比直接注入更危险？答：攻击者无需直接接口，远程在检索数据中埋指令，且 Agent 会自动处理外部内容。防御需把外部内容当数据不当指令，权限最小化让注入成功也无法执行越权动作。
+Prompt 注入的定义、分类、Agent 放大效应和评测基准已统一到 [Q041](#041-什么是-prompt-注入攻击)，本章继续讨论数据泄露、权限、审计与供应链风险。
 
 ### 142. Agent 系统中数据泄露的风险有哪些？
 
@@ -3412,24 +3397,6 @@ Action: finish[答案]
 **HITL**：金融结论需人工核实关键数据与来源；标注不确定性。
 
 **易追问点**：金融 Agent 最大风险？答：幻觉导致错误投资决策。金融数据一字之差影响重大，关键数字必须溯源原始文件交叉验证。不能把模型判断当作投资建议——需免责声明+人工复核。
-
-### 159. 如何设计一个代码生成 Agent？
-
-**答：**
-
-**架构**：仓库检索→任务拆解→补丁生成→测试运行→静态检查→代码审查闭环。执行代码必须在沙箱中完成。
-
-**SWE-bench 范式 + ACI**：给定 issue→Agent 在代码库中导航（view/search/edit）→编辑→运行测试→用测试结果作为反馈迭代。SWE-agent 论文核心：LM Agent 需专门构建的 ACI 而非复用人类接口。
-
-**Anthropic ACI 原则**：工具工程比 prompt 工程更耗时；强制绝对路径（Poka-yoke 防呆）；文件查看/编辑窗口化减少上下文膨胀；用自动化测试作为可验证反馈信号。
-
-**实证数据**：SWE-agent 初版 SWE-bench Full 12.5% pass@1；mini-SWE-agent v2 仅 100 行 Python 在 SWE-bench Verified 达 65%；SWE-bench SOTA 2024 从 ~20% 升至 50%+。
-
-**代表产品**：Cursor、Devin（Cognition AI）、GitHub Copilot Workspace（Issue→Spec→Plan→Implementation 每步支持人工编辑）、Replit Agent。
-
-**安全**：沙箱执行（Docker 隔离）、限制写入范围（只允许目标仓库）、无互联网访问、代码审查（AI 审查+人工 review）。
-
-**易追问点**：代码 Agent 适合什么任务？答：有明确 issue 描述、有测试用例可验证、改动范围可控的任务。不适合架构级重构、无测试的遗留代码、需求模糊的任务。编码是"最确定性的 AI agent 应用"。
 
 ### 160. 如何设计一个多 Agent 协作系统？
 
@@ -5111,3 +5078,74 @@ Agent Runtime（运行时环境，最外层）
 > 我会先确认自己在这次变更里的 RACI，再按真实流程讲需求边界、验收条件、代码检索、方案比较和第一版补丁。AI 产出需要经过源码核对、最小改动审查、单元和集成测试、静态检查以及 PR Review；涉及数据、权限和迁移时，还要考虑灰度、回滚和监控。上述环节哪些由我负责、参与、咨询或只被知会，我会按实际记录回答，不把完整团队流程默认算成个人经历。
 >
 > 面试里我只会拿一项已经核实的真实变更来讲：需求是什么，AI 给了什么草稿，我本人改了哪些关键点，测试暴露了什么问题，以及 Review 和发布分别由谁负责。AI 是效率工具；需求判断、架构取舍、验收和线上责任的归属要以这项变更的真实 RACI 为准，不能为了显得完整就全部揽到自己身上。代码占比不是最重要的证据，能不能用材料证明自己的决策和交付边界才是。
+
+## 17. Agent 执行引擎系统设计
+
+> 本节合并早期综合稿中仍有独立价值的 Agent Runtime、故障演练和治理设计。以下均是系统设计回答；除非本人能提供 Run、告警、工单和修复记录，否则不能把故障场景说成真实线上事故。
+
+### 246. 从零设计可扩展 Agent 执行引擎，主线是什么？
+
+**答：**
+
+> 我不会把生产 Agent 做成一个状态全在内存里的 `while true`。长任务需要规划、执行、工具调用、失败重试、人工确认、上下文压缩、预算终止和崩溃恢复，这些更适合建成可持久化的图状态机。每个节点完成后写 Step Event 和 Checkpoint，边根据结果、风险和预算决定下一步；Worker 崩溃后从最近提交点恢复。
+>
+> 整体拆成四层：API 层负责创建、查询、取消和 Resume；Graph Runtime 负责调度节点与条件边；Tool Runtime 负责 Schema、鉴权、幂等、超时和 Artifact；State Store 保存 Run、Step、Event、Checkpoint、Approval 与版本。LLM 只做受约束的决策和生成，执行语义由 Runtime 保证。
+
+### 247. `AgentRunState`、节点和边怎么设计？
+
+**答：**
+
+> `AgentRunState` 至少保存目标、模式、消息引用、计划、当前步骤、工具结果引用、记忆引用、Token/成本/时间预算、重试计数、Checkpoint 指针、版本和终止原因。大对象不直接塞 State，只存 Artifact Ref；否则每次持久化都会复制长日志，Checkpoint 会越来越大。
+>
+> 节点按职责拆成 Planner、Reasoner、Tool、Validator、HumanGate、Summarizer 和 Final。边必须是可解释条件：需要工具就到 Tool，校验失败回到 Replan，高风险动作进入 HumanGate，上下文超预算进入 Summarizer，达到目标或硬上限进入 Final。节点执行与状态提交要区分，外部副作用还要有幂等键，不能把 Checkpoint 当成 Exactly-once 保证。
+
+### 248. Tool Runtime 和 `ExecutionContext` 为什么要独立？
+
+**答：**
+
+> Tool Registry 为每个工具保存名称、描述、Input/Output Schema、权限范围、超时、重试策略、幂等属性、风险级别和审批要求。模型只提出工具名与参数，Runtime 负责 JSON Schema 校验、可信身份鉴权、限流、Deadline、失败分类、结果脱敏与归档。大结果进入 Artifact Store，只把摘要、哈希和引用返回 Agent。
+>
+> `ExecutionContext` 保存租户与用户身份、模型配置、工具注册表、Memory、Artifact Store、Event Bus、Trace ID、Deadline 和 Cancellation Token。把它从业务 State 中分开，既能在恢复时重建运行依赖，也能保证权限、路由和观测由服务端注入，不能被模型通过修改 State 伪造。
+
+### 249. Human-in-the-loop、队列、Lease 和并发恢复怎么落地？
+
+**答：**
+
+> HumanGate 是一个持久化节点。发邮件、删除、生产写入、支付或数据外发前，Run 进入 `paused`，落一条带输入摘要、风险和过期时间的 Pending Approval；Worker 立即释放，不阻塞线程。用户批准后由 Resume API 校验身份和 State Version，再把 Run 重新入队；拒绝则走取消、补偿或重规划分支。
+>
+> 长短任务分队列，Worker 领取 Run 时拿带过期时间的 Lease；续租失败就停止提交，Lease 过期后其他 Worker 才能接管。Step 更新带 `expected_version` 做乐观锁，防止两个 Worker 同时推进。真正需要防旧 Worker 迟到写入时，还要用递增 Fencing Token，不能只依赖 Redis 锁或进程内互斥。
+
+### 250. ReAct 和 Plan-and-Execute 是否需要两套引擎？
+
+**答：**
+
+> 不需要。它们是两种 Graph Template，共用同一套 State、Tool Runtime、Checkpoint、审批、预算和 Trace。ReAct 模板是 Reason -> Tool -> Observation 的受限循环，每轮动态决定下一步；Plan-and-Execute 模板是 Planner -> Executor -> Validator，计划失效时回到 Replan。
+>
+> 短任务、环境反馈强、路径无法预先知道时用 ReAct；长任务、子任务依赖清晰、需要进度和预算控制时先规划。生产系统还可以混合：先生成粗计划，每个 Step 内部再跑有限 ReAct。关键是每层都有最大步数和退出条件，避免 Planner 与执行循环互相放大成本。
+
+### 251. Agent 执行引擎最该演练哪些故障？
+
+**答：**
+
+| 故障 | 不能只靠什么 | Runtime 处理 |
+| --- | --- | --- |
+| 同一工具和参数反复调用 | 相信模型会自己停 | `max_steps`、重复调用指纹、Token/成本硬上限 |
+| 工具参数缺字段或类型错 | Prompt 要求输出 JSON | Schema 校验、受限 Repair、稳定错误分类 |
+| Recall 注入冲突事实 | 把两条都塞给模型 | 来源、时间与状态比较，冲突降权或转确认 |
+| 恢复后忘记已完成步骤 | 只存消息历史 | State、Checkpoint、计划、Artifact Ref 一起恢复 |
+| 两个 Worker 推进同一 Run | 普通分布式锁 | Lease、Version CAS、Fencing Token、幂等 Step |
+| Provider 429 或抖动 | 无上限重试 | 模型级限流、`Retry-After`、退避、Deadline、Fallback |
+| Tool Result 泄露到日志 | 日志平台权限 | 写日志前 Redaction，正文进受控 Artifact Store |
+| 路由误用昂贵模型 | 人工记住配置 | 配置版本、审批、单 Run/日成本告警和回滚 |
+| 压缩丢失关键约束 | 摘要看起来通顺 | 保护目标/约束/事实，保留原文引用，做恢复评测 |
+| 多 Agent 消息乱序 | 到达顺序 | `conversation_id + sequence`、幂等消费、缺口等待 |
+
+> 这些是故障注入用例，不自动等于本人经历。面试时按“现象、证据、根因、止损、修复、防复发”展开；没有真实证据时明确说是设计演练。
+
+### 252. 如何统一做 Agent 评估、成本、可观测和慢链路优化？
+
+**答：**
+
+> 评估分三层：离线固定数据集测任务完成、工具选择、事实正确与安全；Shadow 在同一流量上比较新旧版本但不产生副作用；线上看完成率、用户纠错、人工接管和业务结果。所有结果都绑定 Model、Prompt、Tool Schema、Runtime 和 Dataset 版本，并保存 Trace，不能只报最好一次。
+>
+> 成本治理给每个 Run 设置 Token、金额、步骤和 Deadline 预算，简单节点路由小模型，稳定前缀利用缓存，大 Tool Result 做 Offload；监控细到每次 LLM、Tool、RAG 与压缩 Span。慢 Agent 先按 Queue、LLM、Tool、RAG、DB 和 Context Assembly 分段测 p50/p95/p99，再针对瓶颈做并行、缓存、连接池、Top-K、模型路由或上下文裁剪。没有分段 Trace 时先补观测，不凭感觉改 Prompt。

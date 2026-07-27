@@ -22,8 +22,7 @@ const problemLabels: Record<string, string> = {
   "10-后端基础设施": "10 · 后端基础设施",
   "11-金融AI": "11 · 金融 AI",
   "12-TypeScript与React": "12 · TypeScript 与 React",
-  "13-系统设计": "13 · 系统设计",
-  "90-补充与历史题库": "90 · 补充与历史题库"
+  "13-系统设计": "13 · 系统设计"
 };
 
 function stripInlineMarkdown(value: string): string {
@@ -141,7 +140,6 @@ export default defineConfig({
     "问题/README.md": "问题/index.md",
     "问题/03-Agent-Memory/README.md": "问题/03-Agent-Memory/index.md",
     "问题/05-英文面试/README.md": "问题/05-英文面试/index.md",
-    "问题/90-补充与历史题库/README.md": "问题/90-补充与历史题库/index.md",
     "面试分析/README.md": "面试分析/index.md",
     "公司/README.md": "公司/index.md"
   },

@@ -3,6 +3,7 @@ import { RotateCcw, X, ZoomIn, ZoomOut } from "@lucide/vue";
 import DefaultTheme from "vitepress/theme";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useData, useRoute } from "vitepress";
+import SitePasswordGate from "./SitePasswordGate.vue";
 
 const { isDark } = useData();
 const route = useRoute();
@@ -165,7 +166,9 @@ watch(isDark, () => nextTick(() => renderMermaid(true)));
 </script>
 
 <template>
-  <DefaultTheme.Layout />
+  <SitePasswordGate>
+    <DefaultTheme.Layout />
+  </SitePasswordGate>
   <Teleport to="body">
     <div v-if="viewerOpen" class="mermaid-viewer" role="dialog" aria-modal="true" aria-label="图表全屏查看器">
       <div class="mermaid-viewer__toolbar" role="toolbar" aria-label="图表缩放工具">

@@ -13,7 +13,7 @@
 ## 事实基线
 
 - AI 周报：[中文专项主文档](../01-AI周报系统/AI周报系统-专项面试问答.md)
-- CodeWiki：[中文专项主文档](../02-CodeWiki/CodeWiki-端到端系统深挖.md)
-- Agent Memory：[中文专项主文档](../03-Agent-Memory/Agent-Memory-端到端系统深挖.md)
+- CodeWiki：[中文专项主文档](../02-CodeWiki/CodeWiki-全链路源码级深入分析.md)
+- Agent Memory：[中文专项主文档](../03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md)
 
 英文旧稿如果和中文主文档冲突，以中文主文档为准，尤其注意不要复述未经压测证明的延迟、并发、容量和覆盖率数字。

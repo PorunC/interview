@@ -108,6 +108,26 @@ SQLite 和 PostgreSQL 通过同一组 Repository Mixin 暴露统一 Store API，
 
 这种结构的优点是业务服务不用到处判断数据库类型；代价是“统一接口”不代表底层能力完全等价，例如 SQLite FTS5、PostgreSQL tsvector、sqlite-vec 和 pgvector 的评分尺度并不相同。
 
+### 4.1 Store Mixin、数据库约束和后端降级
+
+`SQLiteStore` 和 `PostgresStore` 不是两套复制实现，而是由职责更小的 Repository Mixin 组合：
+
+```text
+RepoRepositoryMixin
+AnalysisRunRepositoryMixin
+CodeGraphRepositoryMixin
+GraphRAGRepositoryMixin
+  CodeChunkRepositoryMixin
+  CodeChunkEmbeddingRepositoryMixin
+  GraphCommunityRepositoryMixin
+WikiRepositoryMixin
+LLMRunRepositoryMixin
+```
+
+业务服务面向统一的 `CodeWikiStore`，数据库方言差异留在 Mixin 和 Backend 内部。几个重要唯一约束也应该能讲清：`doc_page` 按 `(repo_id, language_code, slug)` 唯一；`code_chunk` 按 Repo、内容 Hash、文件和行范围去重；Embedding Metadata 按 `(repo_id, chunk_id, model)` 唯一；`llm_run` 围绕 Repo、Task、Cache/Input、Model 和 Prompt Version 建索引。
+
+SQLite 默认启用 Foreign Key、30 秒 Busy Timeout、WAL 和 `synchronous=NORMAL`，适合单机 Local-first；PostgreSQL 使用连接池、`pool_pre_ping` 和 `pool_recycle`，并尝试创建 Vector Extension。扩展不可用时 `supports_pgvector=false`，图与文本检索仍可工作。这里的“可降级”不等于两个后端排序完全一致，也不等于 PostgreSQL 失败会自动切回本地 SQLite。
+
 ## 5. 仓库接入：RepoScanner 怎么工作
 
 ### 5.1 本地目录和 Git URL
@@ -347,6 +367,28 @@ Node metadata 和 Edge metadata 都附加 Provenance。边至少可以解释：
 配置了 LLM 时，`CommunityNamer` 再按批次重命名和总结；LLM 失败只会得到 skipped、partial 或 failed 的命名结果，不会让已经完成的图谱分析失败。
 
 跨社区关系也不是模型编的，而是聚合底层 calls、imports、exports、routes_to 等边，保留最多一部分 Evidence Edge IDs。
+
+### 10.4 边权、Resolution 和社区关系聚合
+
+社区图只选择 File、Config、Class、Function、Method、Schema、Endpoint 等与代码结构有关的节点，忽略 External Node。当前基础边权大致如下，进入分区算法前还要乘原始边的 Confidence：
+
+| Edge Type | 基础权重 |
+| --- | ---: |
+| `calls`、`routes_to` | 1.00 |
+| `inherits` | 0.90 |
+| `implements` | 0.86 |
+| `imports` | 0.75 |
+| `exports` | 0.65 |
+| `references` | 0.62 |
+| `uses_config` | 0.58 |
+| `defines` | 0.50 |
+| `contains` | 0.42 |
+
+这些是经验配置，不是跨仓库最优常数。它表达的是“调用、路由和继承比目录包含更能说明模块耦合”，最终仍要拿已知模块边界的仓库比较 Community Purity、碎片率和跨社区边比例。
+
+多层分区先用较高 `resolution=2.0` 得到细粒度 Leaf，合并过小 Leaf 后构建 Community Graph，再以较低 `resolution=0.5` 得到 Parent；过大的社区可用 `resolution=3.0` 做 Detail Split。Resolution 越大通常越偏向细社区，越小越偏向粗模块，但实际数量还受图密度、算法实现和合并阈值影响。
+
+社区之间的边由底层代码边确定性聚合：Parent 到 Child 使用 `contains`，调用聚合成 `calls_into`，Import/Export 聚合成 `imports_from`，Route 保留 `routes_to`，其他依赖归入 `depends_on`。这让 Wiki 和 GraphRAG 不仅能看到函数级事实，也能表达模块级依赖及其底层证据。
 
 ## 11. Source Chunk：为什么按符号切，不按固定字符切
 
@@ -810,11 +852,30 @@ Repository 删除依赖外键 Cascade 清理核心表，同时显式删除 FTS �
 
 `llm_run` 会保存 Response Content、Usage、Token、状态和脱敏后的 Error。错误会遮盖常见 `sk-` Key、`api_key=` 和 Bearer Token，并截断到 1600 字符。
 
-当前有两个真实边界：
+当前有三个真实边界：
 
 1. `llm.cache_enabled` 目前只在配置里声明，没有被 CachedLLMService 执行链路读取，因此不能说这个开关已经真正控制缓存。
 2. `llm.mode` 会在配置、CLI、Settings API 和 MCP 状态中展示，但 `LLMGateway` 当前没有根据 `sdk/proxy` 做执行分支，实际仍走 LiteLLM Gateway 这条路径。
 3. `cost_usd` 和 `duration_ms` 字段虽然存在，但正常 Run Recorder 没有从当前调用结果填充它们，不能把表结构说成完整成本监控。
+
+### 24.1 `LLMOperation` 和缓存命中协议
+
+一次可缓存调用不是只拿 Prompt 字符串做 Hash。`LLMOperation` 会把影响语义和审计的字段集中起来：
+
+```text
+task_type
+messages
+input_payload
+cache_namespace / cache_parts
+model_alias
+prompt_version
+response_format
+provider_user_id
+```
+
+`complete_with_cache()` 先对结构化 `input_payload` 做 SHA256，再组合 Cache Key。只有 Repo、Task、Cache Key、Input Hash、Model 和 Prompt Version 都匹配，并且旧 Run 是 Success 且 Response 非空时才复用。命中后仍新建一条 `cached=true` 的 Run，而不是悄悄返回旧记录，这样可以审计逻辑调用次数并把 Provider 调用与本地复用分开。
+
+失败调用也写 `status=error` 的 Run，并清理常见 API Key、Authorization Bearer 等敏感片段。这个机制能支持目录、社区命名、页面和翻译复用，但不能防止并发 Cache Stampede：两个相同请求同时 Miss 时仍可能一起打到 Provider。真正服务化时还需要 Singleflight、分布式锁或请求合并，并把 Provider Prompt Cache Token 与本地 Cache Hit 分开统计。
 
 ## 25. Lite Mode：为什么它能不依赖 LLM
 
@@ -846,6 +907,14 @@ MCP 启动 Lite Store 时可以检查当前文件变化；已有图且发现 Pen
 - 不做 LLM 社区命名。
 - 不生成完整 Wiki。
 - 静态调用边仍继承启发式解析误差。
+
+### 25.1 Agent 安装、Pending Sync 和数据边界
+
+Lite Mode 不只是生成一个 SQLite 文件，它还能把 MCP Server 安装到 Coding Agent 配置。对 Codex CLI，安装器会更新全局 `~/.codex/config.toml` 中的 MCP Entry，并在 `~/.codex/AGENTS.md` 写入带标记的使用说明；由于 Codex CLI 没有项目级 MCP 配置，这一行为必须明确提示用户，卸载时也只能删除自己管理的标记区间。
+
+Lite MCP 的 Graph Context、Trace 和 Node Context 会经过 Pending Sync 检查。检测到源码已变化而索引未同步时，工具会在结果前加入 Warning，提示运行 `codewiki_update` 或 `codewiki lite sync`；它不会把旧索引结果伪装成最新事实。当前自动同步和显式 Sync 仍继承增量图的边界，不能把“发现 Pending”说成已经完成 Revision 级一致性。
+
+`.codewiki/codewiki-lite.sqlite3` 属于项目内派生数据，适合本地查询和重建，不应被当成源码真相；是否提交到 Git、如何清理、不同分支是否共用同一索引，都需要团队策略。多分支并行开发时更稳妥的是把 Commit/Revision 纳入索引身份，避免一个工作树的 Sync 覆盖另一个版本的事实。
 
 ## 26. MCP：为什么工具很多，而不是只暴露一个 Ask
 
@@ -890,6 +959,14 @@ Graph 前端基于 `@xyflow/react` 和 ELK.js，支持 Overview、File Detail、
 - Node Detail、Raw Metadata 和 Reference Section。
 
 图不是只用于展示，它承担导航中枢：用户可以从 Repo -> Module -> File -> Symbol 下钻，再跳到 Source 或 Wiki；Ask 和 Wiki 又能回到同一图节点。
+
+### 28.1 Wiki、Ask 和多层图视图
+
+前端使用 React 19、TypeScript 和 Vite，主入口是 `frontend/src/App.tsx`。Graph 不会把所有节点一次性扔给浏览器，而是通过 Overview、Focus、File Detail、Container Drilldown 和 File Symbol 等 Builder 生成不同粒度的视图，再由 `@xyflow/react` 与 ELK.js 负责交互和布局。原始图状态和视觉折叠状态必须分开，否则展开、过滤或重新布局会反向污染后端事实。
+
+Wiki 工作流由 Catalog、Article、Mermaid Block、Markdown Normalize/Section、Source Navigation、Related Pages 和 Markdown/ZIP Export 等组件组成。它不是只渲染 Markdown：Source Ref 要能跳回文件和图节点，父子页与相关页要能导航，Draft/Generated/Stale 状态也必须在页面上区分。
+
+Ask 由 `useAsk` 和结果视图组织 Answer、Sources、Related Graph 与 Trace ID；用户可以从答案引用定位源码，再把相关节点高亮回图谱。这种联动体现“一套事实、多种入口”，但当前前端自动化测试明显弱于 Backend，复杂图交互仍需要补组件测试、无障碍检查和大图性能回归。
 
 ## 29. 安全和隐私边界
 
@@ -1010,6 +1087,23 @@ Warm 文件复用率分别约为 99.7%、96.9% 和 98.2%，但相对 Cold 提速
 | 多进程同 Repo 写入 | 进程内锁无法覆盖 | 可能互相覆盖 | DB Advisory Lock/Job Lease |
 | Trace 查询 | 返回 not_persisted_yet | 无法重放 | Retrieval Trace Store |
 | LLM Cache 开关关闭 | 当前执行链仍可能查缓存 | 配置不符合预期 | 把开关接入 CachedLLMService |
+
+### 32.1 十类源码级故障模式速查
+
+下面不是未经证明的线上事故，而是面试时按“现象、当前防护、遗留边界”回答的故障手册：
+
+| 故障模式 | 当前防护 | 遗留边界或下一步 |
+| --- | --- | --- |
+| Tree-sitter 与 Grammar 版本不匹配 | 锁定依赖版本，单文件解析错误尽量隔离 | CI 对 11 种 Parser 跑固定语法样本和兼容矩阵 |
+| 增量漏掉间接影响 | Source Ref 和直接 Graph Ref 命中页标 Stale | 沿高置信边做有界一至两跳传播，并评估 Dirty Recall |
+| LLM 编造 Source Ref | 只允许本次 Evidence 范围，未知引用过滤，无合法 Ref 则 Draft | 增加 Claim 与 Evidence 的语义蕴含检查 |
+| Mermaid 语法失败 | 服务端按图事实生成，Parser 校验，坏图过滤或全部移除 | 记录图类型、失败语法和降级比例 |
+| 社区检测不稳定 | Louvain 固定 `seed=42`，Leiden 在支持时固定 `random_seed=42` | 把依赖版本和算法写入 Run，比较跨版本漂移 |
+| Prompt 更新后命中旧 Cache | Cache Key 包含 Prompt Version | 并发 Miss 仍需 Singleflight，人工修复 Prompt 时必须升版本 |
+| 超大仓库 OOM | 忽略规则、文件大小限制、AST Worker 上限和现有 Benchmark | 图构建、去重和持久化仍需真正分批及内存预算 |
+| PostgreSQL 缺少 Vector Extension | 标记 `supports_pgvector=false`，保留图和文本检索 | 启动健康状态和降级告警必须可见 |
+| Lite 索引过期 | Pending Sync Warning 和显式 Sync/Update | 增加 Revision 身份，避免分支间覆盖 |
+| Wiki 翻译破坏代码块或引用 | 保留 Code、Path、URL、Slug 和 Refs，按 Markdown Block 切分 | 加代码块不变性、术语表、结构 Diff 和抽样回译 |
 
 ## 33. 为什么这套设计有效
 
@@ -1863,6 +1957,46 @@ FastAPI 没有鉴权，而且启用 LLM 后源码证据可能发给外部 Provid
 **口语化回答：**
 
 > Dirty Plan 不是看起来列出几页就算正确。当前默认链路能沿 Source Ref 和 Graph Ref 找到直接命中页，但不会自动向父页传播；父页传播只存在另一条针对 Missing、Draft 和元数据变化的规划里，这两条能力不能合并着说。下一版要把代码事实到页面的 Lineage 持久化，统一做有界反向传播，并记录每一页为什么变脏；不确定时扩大重建范围，再用固定变更集统计 Dirty Precision、Recall、无变化复用率和发布后 stale 率。
+
+### Q96：Wiki 翻译为什么不重新生成目标语言页面？
+
+**口语化回答：**
+
+> 重新生成会重新走一次取证和生成，成本更高，也可能让目标语言页选出不同的 Source Ref、Graph Ref、Slug 和目录结构，破坏跨语言页面的证据对应关系。当前翻译链路保留代码块、行内代码、标识符、路径、URL、Anchor、Slug 和引用，只翻译标题与正文表达；Source Ref 从源页沿用，因此语言变化不会改变事实链。
+>
+> 这里也有边界：保留引用只能保证目标页仍指向同一批证据，不能证明翻译语义一定准确。生产上还要做 Markdown 结构校验、术语表、代码块不变性检查和抽样回译；翻译失败时保留源页或进入 Draft，不能发布一篇结构已损坏的目标页。
+
+### Q97：MCP Wiki 工具为什么拆成 Plan、Evidence、Save 和 Validate？
+
+**口语化回答：**
+
+> 这不是为了把一个 Generate API 拆得更复杂，而是把长任务变成可检查的阶段。Plan 返回页面队列和依赖；Evidence 只给当前页的 Allowed Source Ref 与写作约束；Agent 写完后由 Save 持久化，再由 Validate 检查结构、引用和状态。这样外部 Agent 每次只处理一页，不需要一次把整个仓库、整本目录和全部源码塞进上下文，失败也能定位到具体页面。
+>
+> 分步工具还便于做权限、幂等、进度和恢复，但当前工作流不等于已经拥有可靠任务队列。要支持跨进程长任务，仍需持久 Run、Step、Lease、Checkpoint、取消信号和 Schema Version；否则 MCP 连接中断后，只能利用已保存结果重跑，不能声称原地续跑。
+
+### Q98：SQLite FTS5 和 PostgreSQL 全文检索有什么差异？
+
+**口语化回答：**
+
+> 当前 SQLite 使用 FTS5 的 `unicode61` Tokenizer，PostgreSQL 使用 `simple` 文本配置和对应的全文查询、排名函数。两条路径都适合 Local-first 或结构化标识符检索，但它们的分词、排名和查询语法不是完全等价，同一个 Query 在两种后端上不能默认得到相同排序。
+>
+> 当前项目没有内置 Jieba 或 `zhparser`，也没有完整的 camelCase、snake_case 拆词器。节点名、路径和 Symbol 的精确或 LIKE 匹配，以及可选向量检索，能补一部分缺口，但中文和混合标识符仍需要专门 Query 集评测。面试时我不会把后端可切换说成检索语义完全一致。
+
+### Q99：GraphRAG 为什么限制 Seed Node 类型？
+
+**口语化回答：**
+
+> `seed_from_symbols` 只允许 Function、Class、Method、Endpoint、Schema、File、Config 和 Module 等相对具体的节点进入 Seed 集合，避免 Repository、Directory 这类过粗节点一命中就把大量无关图结构带进扩展。比如问登录接口，理想 Seed 是 Endpoint 或 Handler，而不是仓库根目录。
+>
+> 限制类型提高精度，但也会牺牲召回。完全没命中时仍要走 FTS、向量或文件级回退；评测要分别看 Seed Precision、Seed Recall、扩图后的证据覆盖和最终回答，不能因为 Seed 更少就直接认定质量更好。
+
+### Q100：为什么要合并过小的 Leaf Community？
+
+**口语化回答：**
+
+> Louvain 或降级算法可能产生只有一两个节点的碎片社区。这类社区单独命名和总结，信息量很低，还会放大 Catalog 页数和 LLM 调用次数。当前会把小于阈值的 Leaf 合并到关系更近的社区，再构建父层社区，使模块摘要更稳定、更像真实代码边界。
+>
+> 合并不是越多越好。独立入口、关键配置或安全边界即使节点少，也可能值得保留。更稳的策略是同时考虑边权、节点角色、目录与入口语义，并用人工模块标注比较 Community Purity、碎片率和跨社区边占比，而不是只用节点数阈值判断。
 
 ## 39. 面试时不要说错的事实
 

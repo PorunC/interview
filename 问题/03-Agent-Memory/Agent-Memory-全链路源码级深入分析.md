@@ -141,6 +141,53 @@ OpenClaw 插件和独立 Gateway 都接在这层上。这样设计的价值是�
 
 目录隔离粒度是 Agent：不同 Agent 进入不同子目录；同一个 Agent 的不同 Session 各自有 `offload-<sessionId>.jsonl`，但共享 `refs/`、`mmds/` 和 `state.json`。L2 会读取同一 Agent 目录下的多份 Offload JSONL，因此这里解决的是 Agent/Session 文件组织，不等于企业租户级授权隔离。
 
+### 4.3 配置默认值和能力降级边界
+
+把关键默认配置集中列出，适合面试时快速说明“零配置能跑到哪一层、哪些能力需要显式开启”。默认值描述的是当前源码口径，真实部署仍要以启动配置和日志为准。
+
+| 配置组 | 关键默认值 | 工程含义 |
+| --- | --- | --- |
+| Capture | `enabled=true` | 默认先记录 L0 原始对话 |
+| Extraction | `enabled=true`、`enableDedup=true`、单次最多 20 条 | 默认后台抽取并做候选去重，但不阻塞主对话 |
+| Persona | 每累计 50 条触发、最多 15 个 Scene | 控制高层画像更新频率和场景规模 |
+| Pipeline | Warm-up `1 -> 2 -> 4 -> 5`、空闲 600 秒 | 新 Session 尽快产出首批记忆，稳定后放大批次 |
+| L2 调度 | L1 后延迟 10 秒、最小 900 秒、最大 3600 秒 | 新数据可提前触发，但不持续推迟已经更早的任务 |
+| Recall | `hybrid`、Top 5、整体超时 5000 毫秒 | 默认混合召回，超时后无记忆降级继续 |
+| Recall Budget | 单条和总字符预算默认都是 0 | 默认未额外限长，是生产配置必须补的风险点 |
+| Store | `sqlite` | 默认 local-first，本地元数据和 FTS 是基本盘 |
+| Embedding | `provider=none` | 未配置远端模型时不创建占位维度向量表 |
+| BM25 | `enabled=true`、`language=zh` | 默认尝试中文关键词检索 |
+| Offload | `enabled=false` | 会修改上下文行为，因此需要显式开启和验证 |
+| Offload Budget | Context Window 200000、MMD 比例 0.2 | 用于分级压缩估算和任务图注入上限 |
+
+配置解析遵循“基础能力可启动、增强能力按需退化”的原则。例如远程 Embedding 缺少 Key、URL、Model 或 Dimensions 时，不应该让整个 Agent 起不来，而是禁用向量能力，继续使用 JSONL、元数据和 FTS。这个容错提高了可用性，但也要求启动日志明确暴露降级状态，不能让运维误以为 Hybrid 已经完整生效。
+
+### 4.4 物理目录和索引结构
+
+长期记忆和 Context Offload 使用不同数据根，物理目录可以作为排障速查：
+
+```text
+memory-tdai/
+  conversations/                 # L0，按天追加 JSONL
+  records/                       # L1，按天追加 JSONL
+  scene_blocks/                  # L2 场景 Markdown
+  persona.md                     # L3 用户画像
+  vectors.db                     # SQLite 元数据、FTS5、sqlite-vec
+  .metadata/recall_checkpoint.json
+  .backup/
+
+context-offload/<agent-name>/
+  offload-<sessionId>.jsonl      # 摘要、Node 和 Ref 映射
+  refs/                          # 完整 Tool Result
+  mmds/                          # Mermaid 任务图
+  state.json
+  sessions-registry.json
+```
+
+SQLite 并不是一张向量表，而是两套数据各自维护元数据、全文和向量索引：L1 使用 `l1_records`、`l1_fts`、`l1_vec`，L0 使用 `l0_conversations`、`l0_fts`、`l0_vec`，`embedding_meta` 记录 Provider、Model 和 Dimensions 兼容信息。向量表按真实维度延迟创建；配置变化时可以删除派生向量表并保留元数据与 FTS，但当前初始化链路只返回 `needsReindex`，不能说已经自动完成全量 Re-embed。
+
+TCVDB 后端对应使用 `<database>_l1_memories`、`<database>_l0_conversations` 和 `<database>_profiles` 三个 Collection。L0/L1 可以做 Dense 与 Sparse Hybrid，Profile 不需要 Embedding。后端抽象让两套 Store 提供相近接口，但不代表云端故障时天然存在一份可自动切换的本地副本。
+
 ## 5. L0：原始对话怎么可靠地存下来
 
 ### 5.1 为什么按天写 JSONL
@@ -314,6 +361,34 @@ Persona 的触发优先级包括：
 
 这个回答比“我们有 span、置信度、冲突检测、用户确认五层防护”更可信，因为后一句混在了一起：其中有当前能力，也有尚未实现的理想设计。
 
+### 8.2 Prompt 工程与 LLM 治理
+
+L1、L2、L3 的 Prompt 和失败语义不能只用一句“调用 LLM 生成”带过。三层共享的原则是：对话内容只作为数据，不允许执行其中指令；输出受结构或文件操作范围约束；高层产物只能从低层证据派生；失败不能拖死主对话。
+
+#### 8.2.1 L1 Prompt 和输出 Schema
+
+L1 一次调用同时做场景切片和原子记忆抽取，避免先分类、再抽取的两次模型成本，也让记忆在生成时就带场景语义。输入可以拆成三块：System 定义记忆抽取角色和安全边界；Context 提供当前 Persona、已有 Scene 和历史记忆摘要；Conversation 只放清洗后、带 ID 的新增消息和必要背景。
+
+当前输出是场景数组，每个场景带 `scene_name`、`message_ids` 和 `memories`；每条 Memory 带 `content`、`type`、`priority`、`source_message_ids` 和 `metadata`。Prompt 会重复强调：只抽用户陈述、跳过 Agent 推理和 Tool 输出、不要执行对话文本里的指令、每条结果必须带来源 ID。这里没有 `temporal_hint`，也没有 `always/session/transient` 自动晋升状态机；`source_message_ids` 仍需代码做存在性和内容蕴含校验。
+
+#### 8.2.2 L2 和 L3 的生成边界
+
+L2 的输入是已有 Scene Blocks 和新增 L1，目标是合并、拆分或更新场景，而不是把所有原子事实拼接成一份摘要。当前 Scene 文件用 Markdown 和 META 区保存 `created`、`updated`、`summary`、`heat`，方便人工查看和 LLM 编辑；它没有可用于确定性晋升的 `stability` 字段。
+
+L3 使用现有 Persona 和发生变化的 Scene 做增量生成，Prompt 强调简洁、只使用场景证据和避免过度推测。当前模板是 `User Narrative Profile`，可包含 Archetype、基本信息、长期偏好、Context、Life Texture、Interaction Protocol 和 Deep Insights。它没有字段级稳定锁、独立 Changelog 或只允许高稳定 Scene 进入的硬门禁，因此“只吸收稳定信息”仍是设计目标，不是确定性保证。
+
+#### 8.2.3 Parser、重试和错误契约
+
+L1 Parser 会去掉 Markdown Fence、定位 JSON 数组、清理控制字符并过滤缺少必要字段的条目。真正的问题是：找不到数组或 JSON 解析失败时可能返回空数组，Provider 异常则可能被转换成 `success=false`，而上层 Runner 当前没有可靠区分“合法空结果”和“处理失败”，仍可能推进 Cursor。
+
+Pipeline 虽有 L1 固定等待 30 秒、最多 5 次的重试，但只有异常真正向上抛出时才会进入；被软化成空数组或失败结果的错误可能绕过重试。下一版必须统一返回契约，按 429、5xx、超时、解析失败和业务拒绝分类，只有所有分组成功后才能提交水位，失败批次进入带源消息 ID 的幂等重放队列。
+
+#### 8.2.4 模型选择、成本和 Trace
+
+长期记忆 Pipeline 支持独立的 OpenAI-compatible 模型，也可以复用宿主 LLM；这只是给模型分级留下入口，当前配置不是 L1、L2、L3 各自绑定不同模型，也没有证据证明某套“主模型加 mini 模型”组合已经投产。Context Offload 另有统一 Temperature 配置，默认 0.2，不能反推长期记忆三层已经完成独立温度调优。
+
+当前 Reporter 能记录 `llm_call`、抽取和生成等部分事件，但没有一张完整的 `llm_run` 表统一保存 Run ID、模型、Prompt 版本、输入哈希、Token、延迟、重试和状态。真正做成本与质量归因时，应把 Capture、L1/L2/L3、Recall 和 Offload 串进同一 Trace，再用固定评测集比较单位成功任务成本，而不是只比较单次调用价格。
+
 ## 9. 后台调度怎么设计
 
 ### 9.1 为什么不能每轮都跑 L1/L2/L3
@@ -343,6 +418,22 @@ L1、L2、L3 都使用 `SerialQueue`，避免同一阶段并发修改游标或�
 L3 还限制为全局并发 1，并用 pending 标记合并重复触发。原因是 Persona 是全局汇总文件，如果多个 Session 同时重写，最后写入者可能覆盖前一个 Session 刚生成的画像。
 
 这里仍然有一个边界：跨 Session 的 L1 语义去重不是一个全局事务。两个 Session 同时召回到同一份旧候选，都可能各自判断应该新增，最终产生重复记录。下一版可以考虑按用户做更细的全局写入串行化，或者在 Store 层加入稳定语义键和乐观并发控制。
+
+### 9.4 三层并发模型和关闭语义
+
+并发不能只用一句“有串行队列”概括，可以拆成三层：
+
+| 层级 | 当前机制 | 真实边界 |
+| --- | --- | --- |
+| Session 关联 | 记录带 `sessionKey`，Pipeline 保存各 Session 的计数、Timer 和 Buffer | L0/L1 JSONL 仍按日期共享，不是每 Session 一个文件 |
+| Manager 队列 | 一个 Manager 各有一条 L1、L2、L3 `SerialQueue` | 不同 Session 的同层任务也会共享队列，热点任务可能排队 |
+| Checkpoint 文件 | 同进程按文件路径共享 Async Lock，临时文件加 Rename | 不是跨进程锁，也不是分布式事务 |
+
+L3 在同一 Pipeline 实例内串行，是因为多个 Session 最终可能更新同一份 Persona。运行中再次触发时只设置 Pending，当前任务完成后再补跑，避免两个模型调用读到同一 Baseline 后互相覆盖；多个进程或独立实例共享远端 Profile 时，仍需要乐观锁或分布式互斥。
+
+Session End 和 Process Stop 也必须分开。`handleSessionEnd` 只刷新当前 Session，不能销毁服务其他 Session 的全局 Scheduler；只有 Core 或 Gateway 停止时才进入完整销毁。当前 `MemoryPipelineManager.destroy()` 等待队列和 Flush 的硬上限约 2 秒，`TdaiCore.destroy()` 对 Deferred Embedding 最多再等约 5 秒，然后关闭 Store。两个超时负责不同阶段。
+
+这条路径是 Best-effort Drain，不是“绝不丢任务”的承诺。内存里的原始消息 Buffer 没有完整持久化到 Checkpoint，超时的 Deferred Embedding 也没有可证明的持久化 Outbox。下一版要增加可重放任务日志或缺失向量扫描，并用两个并发 Session 验证结束其中一个后，另一个的 Timer 和队列仍能继续。
 
 ## 10. Checkpoint 怎么保证重启后接着跑
 
@@ -734,6 +825,23 @@ Emergency 的目标是“先让下一次模型调用还能发生”，不是保�
 | 上下文接近上限 | 进入 emergency，压到约 60% | 可能丢局部语境 | 提前触发、保护关键节点 |
 | Offload 文件损坏/被清理 | 引用链可能断 | 无法恢复某些原文 | 校验和、引用完整性扫描、备份 |
 
+### 23.1 十类高频故障模式速查
+
+这份故障手册不是线上事故清单，而是“风险如何出现、当前怎么防、还缺什么”的面试答题框架：
+
+| 故障模式 | 当前防护 | 仍需补齐 |
+| --- | --- | --- |
+| 动态 L1 打穿 Prompt Cache | L1 放动态 User 前缀，Persona 和 Navigation 放稳定 System 区域 | 用供应商 Usage 做 A/B，不能编缓存命中提升数字 |
+| Recall 内容被再次 Capture | 保存注入前原问题，按消息位置或时间替换，并清理注入标签 | 增加回归样本和污染率指标 |
+| Checkpoint 并发覆盖导致 Cursor 回退 | Per-file Async Lock，Runner/Pipeline 状态分区，Tmp 加 Rename | 多进程需要数据库 CAS 或跨进程锁 |
+| Embedding 配置变化使旧向量失效 | `embedding_meta` 检测 Provider、Model、Dimensions 变化并保留元数据/FTS | 调用方要消费 `needsReindex`，完成可续跑回填和覆盖率核对 |
+| L1 坏 JSON 静默漏记 | 后台运行，不影响主对话 | Parser 必须区分合法空和失败，成功后再推进 Cursor |
+| Mermaid 节点持续膨胀 | 同意图聚合、单节点摘要限长、整图约 4000 字符、注入比例 0.2 | 建图质量评测和节点预算告警 |
+| Session End 误停全局 Scheduler | Session 收尾与 Process Stop 分开 | 两 Session 生命周期回归测试 |
+| Deferred Embedding 迟到写已关闭 Store | Core 关闭前最多等待约 5 秒 | Embedding Outbox 或缺失向量扫描 |
+| Jieba 不可用导致中文 FTS 退化 | 回退 Unicode 分词，系统仍可运行 | 启动时显式告警，并用固定中文集监控 Recall@K |
+| 临时偏好污染 Persona | L1 过滤一次性请求，Persona Prompt 要求克制 | 增加有效期、证据次数、最后确认时间和结构化稳定门禁 |
+
 ## 24. 清理、保留和磁盘治理
 
 长期记忆清理按本地自然日计算保留窗口，扫描 `conversations` 和 `records` 日期分片；数据库侧也按 cutoff 删除过期记录。
@@ -839,6 +947,21 @@ Context Offload 的状态报告还会记录：
 - Mild/Aggressive/Emergency 后 Tool Call/Result 结构仍合法的属性测试。
 - Reclaimer 不误删活跃 MMD 和仍被引用 refs 的测试。
 - 多用户越权搜索、Gateway 未鉴权暴露和端到端删除传播测试。
+
+### 27.2 性能压测和容量规划
+
+当前源码与项目材料可以证明默认阈值、架构瓶颈和特定 Benchmark，不能证明线上 QPS、延迟分位数或容量上限。容量验收应该至少覆盖四个维度：
+
+| 维度 | 应测内容 |
+| --- | --- |
+| 吞吐 | Capture QPS、L1 抽取吞吐、Recall p50/p95/p99、队列等待时间 |
+| 容量 | 单 Session 最大轮数、单主体 L1 数量、每日 JSONL 大小、SQLite/TCVDB 索引规模 |
+| 长任务 | 100/1000 轮工具调用后的 Token、MMD 大小、Refs 磁盘和原文下钻成功率 |
+| 并发 | 10/50/100 Session 的 Capture 延迟、串行队列积压、Checkpoint 与共享 State 竞争 |
+
+现有规模保护包括 Recall Top 5 和 5 秒超时、L1 批量与 Idle 触发、L2/L3 最小最大间隔和串行队列、Persona 最多 15 个 Scene、Backend Offload 单批最多处理有限 Tool Pair、MMD 约 4000 字符和 20% Context 比例。这些是防止失控的保护阈值，不是容量 Benchmark；单条和总 Recall 字符预算默认仍为 0，也意味着生产部署必须显式设置。
+
+瓶颈要按前后台拆开：前台主要是 Query Embedding、FTS/Vector、远程网络和精排，直接影响 TTFT；后台主要是 L1/L2/L3 模型调用、Embedding 欠账、共享串行队列、SQLite 写竞争和文件扫描；Offload 还会增加 L1、L1.5、L2 模型成本及磁盘占用。没有固定机器、模型、数据规模和运行窗口时，只讲测试设计和风险点，不报推测出来的 p99、QPS 或百万级容量。
 
 ## 28. 评测结果怎么正确解释
 
@@ -1685,6 +1808,78 @@ WideSearch、SWE-bench、AA-LCR 和 PersonaMem 衡量的能力不同，Token 统
 > 端到端还要做成对实验：同一模型、同一任务和同一工具轨迹，对比原始历史、线性摘要和 Mermaid 加 Ref 三组，观察 Token、恢复后第一步选择、重复走死路次数、正确 Ref 下钻率和最终通过率。再做中断恢复测试，看隔天或重启以后 Agent 能否从正确节点继续，而不是仅仅复述图上的文字。
 >
 > 当前 Reporter 能记录部分压缩和 Mapping 指标，项目材料也有长任务 Benchmark，但没有一份完整的人工作图金标报告，所以我会把这套评测说成验收方案，不冒充已经跑完的线上结论。
+
+### Q96：问题和历史记忆都不相关时，Recall 注入什么？
+
+**口语化回答：**
+
+> 如果 FTS 和向量都没有候选，L1 不注入。纯 Keyword 或 Embedding 策略会使用各自配置的阈值；本地 Hybrid 是两路取候选后用 RRF 排序，RRF 分数不能和 Cosine 或 BM25 的阈值混用。L2 的 Scene Navigation 和 L3 Persona 属于另外的稳定上下文，也不能为了“每轮都有记忆”硬塞一条无关 L1。
+>
+> 无结果是正常状态，不应该当故障。Trace 要能区分“确实无相关记忆”“检索超时”“Embedding 不可用”和“权限过滤后为空”，否则后续无法判断是召回质量问题还是正确拒绝注入。
+
+### Q97：TCVDB 的原生 Hybrid 和本地 RRF 有什么区别？
+
+**口语化回答：**
+
+> TCVDB 路径由服务端执行 Dense、Sparse 匹配和融合排序，但 Sparse Vector 仍由客户端 BM25 Encoder 生成后写入和查询；SQLite 路径分别执行 FTS5 与向量检索，再由客户端做 RRF。云端接口更适合共享存储和横向扩展，本地路径则依赖少、离线可用、调试直接。
+>
+> 两者不是零成本互换：网络、Collection Schema、Embedding 维度、认证、可用性和排序语义都不同。只有部署中同时保留了可用本地副本时，云端失败才可能真正降到本地 FTS；不能把接口抽象等同于已经具备自动容灾。
+
+### Q98：Persona 里的 Scene Navigation 是什么，为什么要拆开注入？
+
+**口语化回答：**
+
+> Scene Navigation 是 Persona 文件末尾的场景索引，列出当前 L2 场景名和简述，帮助 Agent 判断有哪些主题可以继续下钻。它不是 Persona 本体：Persona 表达稳定画像，Navigation 表达可检索目录。Recall 时先把两者拆开，Persona 放稳定 System 上下文，Scene Navigation 作为单独索引注入，避免目录文本污染画像语义。
+>
+> 放在同一个文件便于人查看和维护，但程序边界仍必须明确。下一版如果要多租户、版本化或独立更新，可以把 Navigation 做成派生视图；无论物理上是否分文件，都不能把场景列表当成已经验证的长期人格事实。
+
+### Q99：Offload 的 Collect、Local 和 Backend 模式分别做什么？
+
+**口语化回答：**
+
+> Local 模式在本地执行 L1、L1.5 和 L2 摘要与任务图；Backend 模式把这些 LLM 计算交给远端服务；Collect 模式只采集工具轨迹和运行数据，不注入 MMD，也不替换 Tool Result，适合观测、离线分析或先评估长任务特征。
+>
+> 三种模式的安全与故障边界不同。Backend 增加网络、认证和数据出域风险；Local 增加本机资源与模型依赖；Collect 不产生上下文压缩收益。模式切换必须在 Run Trace 中可见，不能拿 Collect 的采样数据证明压缩已经生效。
+
+### Q100：用户问“我上周说过什么”时，Recall 怎么处理？
+
+**口语化回答：**
+
+> 这是语义条件加时间窗口的组合查询。当前 Hybrid 主要按关键词、向量和 RRF 排相关性，记录虽带时间戳，但没有先把“上周”解析成绝对区间再做 Metadata Filter，因此可能召回主题相关但时间不对的内容。Agent 需要精确核对时，应继续搜索 L0 原文和时间线。
+>
+> 下一版会先做 Temporal Parsing，把相对时间转成带时区的闭区间或半开区间，在窗口内再做 Hybrid 排序，并把解析结果写入 Trace。这样才能区分“上周相关内容不存在”和“系统没理解上周是哪几天”。
+
+### Q101：Node 项目怎么给 SQLite FTS5 做中文分词？
+
+**口语化回答：**
+
+> 旧稿里这条细节使用的是 `@node-rs/jieba`，通过 Node Native Binding 调用，不需要启动 Python 进程。写入侧用 `cutForSearch()` 分词后把 Token 以空格连接进 FTS 列，查询侧用同样模式构造 OR Query，从而让中文短词可以命中。
+>
+> 依赖加载失败时会回退到 FTS5 `unicode61` 与 Unicode 正则切分，这不是等价降级，长中文句子可能形成过长 Token，召回明显下降。启动时应该暴露分词器状态并告警，再用固定中文 Query 集比较 Recall@K；没有同机 Benchmark 时不宣称 Native Binding 一定比 Python Jieba 更快。
+
+### Q102：Checkpoint 文件损坏后会怎样恢复？
+
+**口语化回答：**
+
+> 当前 `CheckpointManager.readRaw()` 遇到读取或 JSON 解析异常会返回默认空状态，所以进程不会直接起不来；但这会让 Session Cursor、累计计数和 Pending 状态看起来像从未执行过，既可能重扫，也可能丢掉只存在 Checkpoint 里的调度进度。它不是“安全地多跑一次”这么简单。
+>
+> 临时文件加 Rename 能降低半写文件概率，但防不了磁盘损坏、人工改坏和合法 JSON 的语义损坏。下一版要加入 Schema Version、Checksum、坏文件隔离和告警，再从最近备份、L0、Store 与任务事件重建；恢复完成前不能静默按空状态继续。
+
+### Q103：Seed 导入为什么把 `captureStartTimestamp` 设为 0？
+
+**口语化回答：**
+
+> Live 模式用启动时间做下限，避免冷启动时把整个历史日志再次录入；Seed 的目标正是导入历史数据，因此设为 0 表示不设时间下限。这是“只接增量”和“主动回灌历史”的明确边界。
+>
+> Seed 返回成功也不等于 L0 到 L3 全部物化完成。当前流程会等待部分 L1 Idle，但 L2、L3 仍可能 Pending 或在 Pipeline 销毁时中断。生产导入要持久化每层水位，返回完成数、Pending 数和失败数，并允许按稳定批次 ID 幂等续跑。
+
+### Q104：项目当前的自动化测试覆盖到什么程度？
+
+**口语化回答：**
+
+> 项目已经配置 Vitest、V8 Coverage 和单独的 E2E 入口，但旧稿审计时实际签入的测试主要覆盖 Auth Profile Key、Sanitize 和 Time。Capture Cursor、L1 Parser 与 Cursor、Dedup、RRF、Checkpoint、Offload Pairing 和 Mermaid 等关键路径不能仅凭“有 Coverage 配置”就说已覆盖，配置里也没有强制门槛。
+>
+> 我会优先补两类真实失败语义：L0 JSONL Append 失败不能推进 Capture Cursor；L1 无 JSON、坏 JSON、Provider 异常或 `success=false` 时不能错误推进 L1 Cursor。随后用 Fake Runner 覆盖重放幂等、RRF、Checkpoint 并发、并行 Tool Pairing、Emergency 和 Ref 恢复。模型质量另用固定离线集评测，不能用代码单测替代。
 
 ## 34. 面试时绝对不要说错的事实
 
