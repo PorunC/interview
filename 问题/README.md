@@ -22,7 +22,7 @@
 | 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练项目深挖、行为与 HR、20 道 Live Coding 和 3 道系统设计 |
 | 英文行为与 HR | [英文行为面与 HR 追问口语模板](./05-英文面试/英文行为面与HR追问口语模板.md) | 40 道英文口语模板，覆盖求职动机、Ownership、冲突、失败、谈薪与反问；所有 `[FILL: ...]` 必须用真实事实替换 |
 | Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./项目/04-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
-| Java 后端 | [Java 后端高频面试题](./07-Java后端/Java后端高频面试题.md) | 120 道口语题，补齐 Java/JUC/JVM/Spring/MySQL/Redis/MQ/分布式和故障排查 |
+| Java 后端 | [Java 后端高频面试题](./07-Java后端/Java后端高频面试题.md) | 160 道口语题，补齐 Java/JUC/JVM/Spring/MySQL/Redis/MQ/分布式、JavaGuide 覆盖缺口和故障排查 |
 | Java 源码与中间件 | [Java 源码与中间件生产化面试题](./07-Java后端/Java源码与中间件生产化面试题.md) | 100 道源码和生产题，覆盖 JUC、Spring/MyBatis、MySQL、Redis、Kafka 及 10 道完整手写题 |
 | 算法与现场编码 | [算法与现场编码高频题](./08-算法与现场编码/算法与现场编码高频题.md) | 100 道口语题，按思路、不变量、复杂度和易错点练习算法、并发与后端现场设计 |
 | 完整现场编码 | [Java/Python 现场编码完整题解](./08-算法与现场编码/Java-Python现场编码完整题解.md) | 30 道完整 Java/Python/SQL 题，包含澄清、不变量、可执行代码、测试、复杂度和 Follow-up |
