@@ -1,8 +1,8 @@
 # AI Agent 面试题专业简短版
 
-> 定位：不绑定具体项目的 Agent 基础知识库，按专业面试回答口径压缩为简短答案。项目事实不要从本文反推，应以 [问题资料索引](../README.md) 中三个专项主文档为准。
+> 定位：不绑定具体项目的 Agent 基础知识库，按专业面试回答口径压缩为简短答案。项目事实不要从本文反推，应以 [问题资料索引](../../README.md) 中三个专项主文档为准。
 >
-> LangChain/LangGraph 当前版本、弃用 API 和框架选型请优先使用 [LangChain、LangGraph 与主流 AI 框架面试题](./LangChain-LangGraph与主流AI框架-面试题.md)。本文为通用知识库，部分 Classic API 仅适合识别历史题目。
+> LangChain/LangGraph 当前版本、弃用 API 和框架选型请优先使用 [LangChain、LangGraph 与主流 AI 框架面试题](../02-Agent框架/LangChain-LangGraph与主流AI框架-面试题.md)。本文为通用知识库，部分 Classic API 仅适合识别历史题目。
 >
 > 特别说明：本文 Q093-Q104 保留了早期题库的组织方式，已经校正关键错误，但不作为当前 API 的唯一答案。涉及 MCP 2025-11-25、LangChain v1、LangGraph 1.x、Agent Server、OpenAI Agents SDK、Spring AI 或 LangChain4j 时，以框架专项为准。
 

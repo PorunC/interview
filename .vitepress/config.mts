@@ -29,6 +29,11 @@ const projectLabels: Record<string, string> = {
   "04-Pi": "04 · Pi Coding Agent"
 };
 
+const problemSubdirectoryLabels: Record<string, string> = {
+  "01-Agent基础与系统设计": "01 · Agent 基础与系统设计",
+  "02-Agent框架": "02 · Agent 框架"
+};
+
 function stripInlineMarkdown(value: string): string {
   return value
     .replace(/\[(.*?)\]\([^)]*\)/g, "$1")
@@ -90,6 +95,23 @@ function projectSidebarItems(directory: string): DefaultTheme.SidebarItem[] {
     }));
 }
 
+function problemGroupItems(directory: string): DefaultTheme.SidebarItem[] {
+  const rootItems = toItems(markdownFiles(directory));
+  const nestedItems = fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({ entry, files: markdownFiles(path.join(directory, entry.name)) }))
+    .filter(({ files }) => files.length > 0)
+    .sort((left, right) => left.entry.name.localeCompare(right.entry.name, "zh-CN", { numeric: true }))
+    .map<DefaultTheme.SidebarItem>(({ entry, files }) => ({
+      text: problemSubdirectoryLabels[entry.name] || entry.name,
+      collapsed: true,
+      items: toItems(files)
+    }));
+
+  return [...rootItems, ...nestedItems];
+}
+
 function problemSidebar(): DefaultTheme.SidebarItem[] {
   const directory = path.join(root, "问题");
   const rootItems = toItems(markdownFiles(directory));
@@ -112,7 +134,7 @@ function problemSidebar(): DefaultTheme.SidebarItem[] {
       return {
         text: problemLabels[entry.name] || entry.name,
         collapsed: entry.name !== "00-总览",
-        items: toItems(markdownFiles(groupDirectory))
+        items: problemGroupItems(groupDirectory)
       };
     });
 

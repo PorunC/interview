@@ -59,7 +59,7 @@ const focusTopics = [
   {
     title: "AI Agent",
     meta: "Agent 与框架",
-    link: "/问题/04-AI-Agent通用/AI-Agent-通用面试题",
+    link: "/问题/04-AI-Agent通用/01-Agent基础与系统设计/AI-Agent-通用面试题",
     icon: Network
   },
   {

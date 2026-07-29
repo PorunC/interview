@@ -17,8 +17,8 @@
 | CodeWiki 真实面试 | [CodeWiki 真实面试题与答案](./项目/02-CodeWiki/CodeWiki-真实面试题与答案.md) | 11 张统一答案卡，包含现场来源公司、题号、正确答案和事实边界 |
 | Agent Memory 专项 | [Agent Memory 全链路源码级深入分析](./项目/03-Agent-Memory/Agent-Memory-全链路源码级深入分析.md) | 104 道题，覆盖长期记忆、Hybrid RRF、上下文卸载、Mermaid、原文追溯、多租户中台和失败语义 |
 | Agent Memory 真实面试 | [Agent Memory 真实面试题与答案](./项目/03-Agent-Memory/Agent-Memory-真实面试题与答案.md) | 14 张统一答案卡，包含现场来源公司、题号、正确答案和事实边界 |
-| Agent 基础补课 | [AI Agent 通用面试题](./04-AI-Agent通用/AI-Agent-通用面试题.md) | 查缺补漏，不建议从头背完整本 |
-| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/LangChain-LangGraph与主流AI框架-面试题.md) | 272 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Java/TypeScript/Python 主流框架、生产故障、Agent 前端与项目映射 |
+| Agent 基础补课 | [AI Agent 通用面试题](./04-AI-Agent通用/01-Agent基础与系统设计/AI-Agent-通用面试题.md) | 查缺补漏，不建议从头背完整本 |
+| AI 框架专项 | [LangChain、LangGraph 与主流 AI 框架面试题](./04-AI-Agent通用/02-Agent框架/LangChain-LangGraph与主流AI框架-面试题.md) | 272 道联网校准口语题，覆盖当前 API、Functional API、Agent Server、Context Engineering、状态恢复、MCP/A2A、Java/TypeScript/Python 主流框架、生产故障、Agent 前端与项目映射 |
 | 英文面试 | [英文材料目录](./05-英文面试/README.md) | 先掌握中文事实口径，再练项目深挖、行为与 HR、20 道 Live Coding 和 3 道系统设计 |
 | 英文行为与 HR | [英文行为面与 HR 追问口语模板](./05-英文面试/英文行为面与HR追问口语模板.md) | 40 道英文口语模板，覆盖求职动机、Ownership、冲突、失败、谈薪与反问；所有 `[FILL: ...]` 必须用真实事实替换 |
 | Pi Coding Agent | [Pi-mono 全链路源码级分析与面试问答](./项目/04-Pi/pi-mono-全链路源码级深入分析与面试问答.md) | 以公司内部引入研究项目口径准备 Provider、Loop、工具、Session、Compaction、TUI 和安全边界 |
