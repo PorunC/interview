@@ -36,20 +36,19 @@ flowchart LR
 
 **Interview Answer:**
 
-Hello, my name is Chen Bairun. I have a bachelor's degree in Software Engineering and 3 years of backend development experience, recently focused on LLM engineering and AI Agent infrastructure. On the tech stack side, I primarily use Python/FastAPI for backend services and data pipelines, and also TypeScript/Node for Agent plugins, Gateway, tool runtime, and frontend engineering.
+Hi, I'm Chen Bairun. I started my career at China Merchants Bank right after graduation. My background is mainly in Java backend development and enterprise application engineering. Since then, I have worked on backend services, data workflows, and production systems, so I pay close attention to reliability, consistency, failure recovery, and observability.
 
-I've worked on three closely related in-house projects. The first is an AI Weekly Report system for a bank. The implementation covers multi-source collection, cleaning, segmented LLM analysis, bounded retry, result persistence, and push delivery. Earlier project material estimates that the manual workflow took 8 to 10 hours and that an automated run took about 20 minutes, but I would quote those numbers only after checking their measurement basis and confirming my exact RACI.
+More recently, I have been focusing on AI application engineering. I have worked on three representative in-house projects. The first was an AI operations weekly-report system that automated multi-source data collection, validation, statistical analysis, and report generation. The second was CodeWiki, a code intelligence platform that combines AST analysis, code graphs, full-text search, and GraphRAG to provide source-grounded code understanding. The third was an Agent Memory system that stores and recalls user context across sessions while keeping the original evidence traceable.
 
-The second is CodeWiki, a code intelligence platform based on Python/FastAPI and TypeScript/React, implementing multi-language AST parsing, a code dependency graph, GraphRAG retrieval, source-level documentation generation, and multiple Agent access methods including CLI, HTTP API, and MCP. It solves the problem of how Agents or developers can reliably understand large code repositories.
+These projects allowed me to combine my backend engineering experience with RAG, Agent workflows, memory systems, and LLM application design. I am now looking for an opportunity where AI is a core part of the product and engineering work, and where I can take more end-to-end responsibility, from architecture and implementation to reliability and continuous improvement.
 
-What best represents my fit for this role is the In-House Agent Memory project. Its current implementation has a tiered L0-to-L3 memory architecture for raw conversations, atomic memories, scenarios, and Persona. Retrieval combines vector search, BM25, and Hybrid RRF, while the Context Offload path stores large tool results outside the prompt and keeps Mermaid navigation plus references in the working context. In the recorded WideSearch configuration, tokens went from 221.31M to 85.64M and pass rate went from 33% to 50%. In the recorded PersonaMem configuration, final-answer accuracy went from 48% to 76%. Those are two scoped offline benchmark results, not overall production outcomes, and I should describe my personal ownership only after confirming the RACI.
-
-Together, these projects let me discuss more than model calls: I can go into memory, retrieval, tool-result offloading, context management, state, and engineering trade-offs. I would still separate source-verified implementation from my personal contribution in the final interview wording.
+That is the main story of my background. I would be happy to discuss any of these projects in more detail.
 
 **Follow-up Points:**
 
 - If asked "which experience best matches this role": answer In-House Agent Memory, because it directly maps to memory, tool logs, long-running tasks, cost, and stability.
 - If asked "how does your backend capability show": answer with state persistence, async scheduling, storage adapter, interface abstraction, observability, and fault recovery — not just prompt writing.
+- Before using this introduction, confirm that "China Merchants Bank" is the exact English employer entity shown in the relevant HR records.
 
 ---
 

@@ -10,7 +10,13 @@
 
 **Spoken answer**
 
-> I am a backend software engineer with a degree in software engineering. My recent work has focused on bringing LLM capabilities into real engineering workflows. The three in-house projects I usually discuss are an AI weekly operations report, CodeWiki, and Agent Memory. They cover data pipelines, code intelligence, retrieval, long-term memory, and context management. My verified responsibility was `[FILL: exact modules and delivery stages]`. I am now looking for a role where AI is part of the core product and where reliability, evaluation, and user feedback matter.
+> Hi, I'm Chen Bairun. I started my career at China Merchants Bank right after graduation. My background is mainly in Java backend development and enterprise application engineering. Since then, I have worked on backend services, data workflows, and production systems, so I pay close attention to reliability, consistency, failure recovery, and observability.
+>
+> More recently, I have been focusing on AI application engineering. I have worked on three representative in-house projects. The first was an AI operations weekly-report system that automated multi-source data collection, validation, statistical analysis, and report generation. The second was CodeWiki, a code intelligence platform that combines AST analysis, code graphs, full-text search, and GraphRAG to provide source-grounded code understanding. The third was an Agent Memory system that stores and recalls user context across sessions while keeping the original evidence traceable.
+>
+> These projects allowed me to combine my backend engineering experience with RAG, Agent workflows, memory systems, and LLM application design. I am now looking for an opportunity where AI is a core part of the product and engineering work, and where I can take more end-to-end responsibility, from architecture and implementation to reliability and continuous improvement.
+>
+> That is the main story of my background. I would be happy to discuss any of these projects in more detail.
 
 **Likely follow-ups**
 
@@ -21,6 +27,7 @@
 **Facts I must fill**
 
 - `[FILL: formal job title and verified employment dates]`
+- `[FILL: whether "China Merchants Bank" is the exact English employer entity on HR records]`
 - `[FILL: one precise ownership statement for each project]`
 - `[FILL: one non-AI Java or backend delivery]`
 
