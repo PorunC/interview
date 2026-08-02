@@ -40,8 +40,6 @@ Hello, my name is Chen Bairun. I graduated from Shenzhen University with a bache
 
 In my work, I have mainly contributed to three AI projects. The first was an AI weekly-report system that implemented the complete workflow from multi-source data collection and LLM analysis to report generation and automatic delivery. It reduced the weekly-report effort from eight to ten hours to about twenty minutes and saved approximately fifty person-days per year. The second was CodeWiki, a code intelligence platform where I used Python, FastAPI, TypeScript, React, AST parsing, and GraphRAG to implement code retrieval, dependency analysis, and source-code documentation generation. It reduced the time needed to understand cross-module code from about two hours to thirty minutes. The third was an Agent long-term memory and context-compression system. I designed an L0-to-L3 layered memory architecture and combined vector search, BM25, and Hybrid RRF. The system reduced token consumption by 61%, improved the task pass rate by 52%, and increased memory accuracy from 48% to 76%.
 
-These projects allowed me to combine my backend engineering experience with RAG, Agent workflows, memory systems, and LLM application design. I am now looking for an opportunity where AI is a core part of the product and engineering work, and where I can take more end-to-end responsibility, from architecture and implementation to reliability and continuous improvement.
-
 That is the main story of my background. I would be happy to discuss any of these projects in more detail.
 
 **Follow-up Points:**
