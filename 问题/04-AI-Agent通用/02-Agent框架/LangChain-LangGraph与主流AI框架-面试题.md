@@ -654,7 +654,21 @@ graph.invoke(Command(resume=True), config)
 
 ---
 
-## 五、主流框架对比题
+## 五、近期真实面试回流
+
+### Q60A. Autel 追问的 Agent 与 Workflow 边界怎么回答？
+
+> Workflow 的下一步主要由代码、状态机和硬约束决定，适合采集、校验、调度和安全门禁；Agent 让模型在明确工具和预算内决定下一步，适合意图理解、候选规划和非结构化信息处理。无人机调度不能把整条链路交给 Agent：LLM 只产出结构化意图或候选方案，约束引擎、优化器和飞控分别负责合法性、优化和实时安全。能用确定性流程解决的部分不需要增加 Agent。
+
+### Q60B. Skill、Hook、Memory Service 和 LangGraph 分别处在哪一层？
+
+> Skill 是渐进披露的过程知识，告诉 Agent 何时、怎样使用能力；Hook 是宿主生命周期事件；Memory Service 是 Capture/Recall/Offload 的执行边界；LangGraph 是显式状态、分支、循环和恢复的编排运行时。它们可以组合，但没有任何一个名词自动等于云服务、持久化或多租户。是否使用 LangGraph 仍取决于状态恢复、人工介入和流程复杂度，不能因面试官提到框架就把自研服务改称 LangGraph。
+
+### Q60C. ToC 运动 Agent 为什么需要框架外的状态和数据层？
+
+> 框架 State 只保存当前运行所需的最小事实和引用；设备遥测、运动事件、授权、删除和数据新鲜度必须由业务 Store、时序库和事件系统负责。Checkpointer 解决一次 Agent Run 的暂停/恢复，不能替代设备事实库、租户鉴权或跨服务 Outbox。框架可以承载编排，但契约、幂等、观测和安全要由业务层补齐。
+
+## 六、主流框架对比题
 
 ### Q61.【必问】LangChain、LangGraph、Deep Agents、LangSmith 怎么分工？
 
@@ -732,7 +746,7 @@ graph.invoke(Command(resume=True), config)
 
 ---
 
-## 六、结合你的实际项目怎么回答
+## 七、结合你的实际项目怎么回答
 
 ### Q73.【实际面试】你用过 LangGraph 这类 Agent 框架吗？
 
@@ -833,7 +847,7 @@ flowchart LR
 
 ---
 
-## 七、极速追问
+## 八、极速追问
 
 ### Q83. `create_agent` 的自定义 State 能用 Pydantic 吗？
 
@@ -2157,7 +2171,7 @@ flowchart LR
 
 ---
 
-## 八、推荐练习顺序
+## 九、推荐练习顺序
 
 1. 先口述 Q01、Q06、Q15、Q23、Q26、Q31、Q32、Q35、Q37、Q50、Q60 和 Q73。
 2. 手写一个 `StateGraph`：一个模型 Node、一个 Tool Node、一个条件回环、一处 Interrupt、一个持久化 Checkpointer。
@@ -2178,7 +2192,7 @@ flowchart LR
 
 ---
 
-## 九、联网来源
+## 十、联网来源
 
 ### 9.1 官方当前文档：用于确定答案
 
@@ -2374,6 +2388,6 @@ flowchart LR
 
 ---
 
-## 十、一句话收尾
+## 十一、一句话收尾
 
 > 我不会把框架熟练度理解成记住多少构造函数。真正能证明我懂框架的是：能把业务建成清晰状态和控制流，知道哪里会重复执行，能控制权限、成本和副作用，出错后还能从 Trace 和 Checkpoint 解释并恢复。
