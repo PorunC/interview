@@ -89,11 +89,11 @@ L3 Persona 和完整 Scene Navigation 放 system 后缀；与 query 相关的少
 
 宿主 Compact 通常生成整体摘要，简单且通用；本系统额外保留结构化任务状态和可回查 Tool Result。两者可以组合：先做可逆 Offload，再在必要时使用宿主 Compact。不能宣称自研方案全面替代原生能力。
 
-## M10：和 OpenClaw、CoCo、Mem0 等方案如何比较？
+## M10：和 OpenClaw、ClaudeCode、Mem0 等方案如何比较？
 
 OpenClaw 原生 Memory、Mem0、Letta、Zep 等各有 scope、抽取、更新和检索能力，不能用过时版本下结论。当前项目的特化点是把跨会话长期记忆与 Coding Agent 工具结果的可恢复 Offload 分开，并保留 source/result refs。
 
-公平比较必须固定产品版本、底模、Embedding、任务集、Token Budget、重试和超时，报告任务正确率、Token、写入/召回延迟、错误注入和删除能力。没完整读过 CoCo 源码时就明确说没有，不替竞品编能力。
+公平比较必须固定产品版本、底模、Embedding、任务集、Token Budget、重试和超时，报告任务正确率、Token、写入/召回延迟、错误注入和删除能力。没完整读过 ClaudeCode 源码时就明确说没有，不替竞品编能力。
 
 ## M11：Benchmark 数字怎样正确表述？
 
